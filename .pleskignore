@@ -1,0 +1,61 @@
+# Arquivos e pastas a serem ignorados no build Plesk
+# Sistema de Presença IPDA
+# Desenvolvido por AchillesOS
+
+# Páginas de teste (podem causar erros no static export)
+src/app/test-*
+src/app/**/test*
+src/app/simple-login
+src/app/dev-*
+
+# Arquivos de desenvolvimento
+*.dev.*
+*.test.*
+*.spec.*
+test-*
+dev-*
+
+# Logs
+*.log
+logs/
+
+# Cache e builds anteriores
+.next/
+out/
+dist/
+build/
+
+# Dependências
+node_modules/
+
+# Ambiente
+.env.local
+.env.development
+.env.test
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentação de desenvolvimento (manter apenas essenciais)
+docs/dev-*
+docs/test-*
+
+# Scripts de desenvolvimento
+scripts/dev-*
+scripts/test-*
+
+# Backup files
+*.backup
+*.bak
+*~

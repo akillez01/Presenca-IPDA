@@ -1,0 +1,146 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 96.1%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 231 48% 48%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 88 50% 53%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 231 48% 48%;
+    --radius: 0.5rem;
+    
+    /* Cores para gráficos */
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    
+    /* Sidebar - unificado com tema escuro */
+    --sidebar-background: 240 10% 4%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 231 48% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-border: 240 3.7% 15.9%;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 231 48% 48%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 88 50% 53%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 231 48% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  
+  /* Melhorias de acessibilidade para foco */
+  [data-focus] {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer components {
+  /* Estilos reutilizáveis */
+  .card {
+    @apply bg-card text-card-foreground rounded-lg border shadow-sm;
+  }
+  
+  .badge {
+    @apply inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors;
+  }
+}
+/* Regras específicas para impressão - ocultar interface */
+@media print {
+  /* Ocultar completamente todos os elementos da interface */
+  header,
+  nav,
+  .sidebar,
+  [data-sidebar],
+  [data-sidebar-provider],
+  [role="navigation"],
+  button:not(.print-keep),
+  .print\:hidden,
+  /* Elementos específicos que aparecem no topo */
+  .firebase-status,
+  .header,
+  .app-header,
+  .navigation,
+  .breadcrumb,
+  .breadcrumbs,
+  /* Ocultar também elementos com essas classes */
+  .sticky,
+  .z-10,
+  .border-b,
+  .backdrop-blur-sm {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+  }
+  
+  /* Forçar que apenas o conteúdo da carta seja visível */
+  body {
+    background: white !important;
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-family: 'Times New Roman', serif !important;
+  }
+  
+  /* Remover sombras e bordas desnecessárias */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+  
+  /* Garantir que cartões sejam limpos na impressão */
+  .card,
+  [class*="card"] {
+    background: white !important;
+    border: none !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
+}

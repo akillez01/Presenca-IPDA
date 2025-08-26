@@ -1,0 +1,61 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 🔓 REGRAS ABERTAS PARA USUÁRIOS CRIADOS DINAMICAMENTE
+    // Use estas regras temporariamente até configurar o Firebase CLI
+    
+    // Função para verificar se é Super Usuário
+    function isSuperUser() {
+      return request.auth != null && (
+        request.auth.token.email == "admin@ipda.org.br" ||
+        request.auth.token.email == "marciodesk@ipda.app.br"
+      );
+    }
+    
+    // Regras para coleção de usuários - ABERTA PARA USUÁRIOS AUTENTICADOS
+    match /users/{userId} {
+      // Super usuários podem fazer tudo
+      allow read, write: if isSuperUser();
+      
+      // QUALQUER usuário autenticado pode ler e escrever SEU PRÓPRIO documento
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // Super usuários podem criar novos usuários
+      allow create: if isSuperUser();
+    }
+    
+    // Regras para coleção de presença (attendance) - ABERTA PARA USUÁRIOS AUTENTICADOS
+    match /attendance/{document} {
+      // Qualquer usuário autenticado pode ler e escrever presença
+      allow read, write: if request.auth != null;
+    }
+    
+    // Regras para configurações do sistema
+    match /system/{document} {
+      // Qualquer usuário autenticado pode ler, super podem escrever
+      allow read: if request.auth != null;
+      allow write: if isSuperUser();
+    }
+    
+    // Regras para relatórios (APENAS SUPER USUÁRIOS)
+    match /reports/{document} {
+      allow read, write: if isSuperUser();
+    }
+    
+    // Regras para coleções administrativas (APENAS SUPER USUÁRIOS)
+    match /admin/{document} {
+      allow read, write: if isSuperUser();
+    }
+    
+    // Regras gerais para outras coleções
+    match /{document=**} {
+      // Super usuários têm acesso total
+      allow read, write: if isSuperUser();
+      
+      // Qualquer usuário autenticado tem acesso de leitura
+      allow read: if request.auth != null;
+    }
+  }
+}
