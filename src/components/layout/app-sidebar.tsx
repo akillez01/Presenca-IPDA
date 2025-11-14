@@ -1,40 +1,62 @@
 "use client";
 
-import { BarChart3, Church, Cog, LayoutDashboard, UserPlus, Users } from "lucide-react";
+import { BarChart3, Church, LayoutDashboard, QrCode, Settings, UserPlus, Users } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { Badge } from "@/components/ui/badge";
 import {
-    Sidebar,
-    SidebarContent,
-    SidebarHeader,
-    SidebarMenu,
-    SidebarMenuButton,
-    SidebarMenuItem
+  Sidebar,
+  SidebarContent,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
 import { getUserType, UserType } from "@/lib/auth";
 
-// Links para usuários básicos (acesso limitado)
-const basicUserMenuItems = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/presencadecadastrados", label: "Presença de Cadastrados", icon: Users },
-  { href: "/register", label: "Cadastrar Membros", icon: UserPlus },
-  { href: "/cartaderecomendacao", label: "Carta de Recomendação", icon: Church },
-  { href: "/cartaderecomendacao1dia", label: "Carta 1 Dia", icon: Church },
-];
+// Tipo para os itens do menu
+interface MenuItem {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  inDevelopment?: boolean;
+}
 
-// Links completos para super usuários
-const superUserMenuItems = [
+// Links para usuários básicos (acesso limitado)
+const basicUserMenuItems: MenuItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/presencadecadastrados", label: "Presença de Cadastrados", icon: Users },
   { href: "/reports", label: "Relatórios", icon: BarChart3 },
+  { href: "/scanner", label: "Scanner QR Code", icon: QrCode },
   { href: "/register", label: "Cadastrar Membros", icon: UserPlus },
-  { href: "/cartaderecomendacao", label: "Carta de Recomendação", icon: Church },
-  { href: "/cartaderecomendacao1dia", label: "Carta 1 Dia", icon: Church },
-  { href: "/admin/users", label: "Gerenciar Usuários", icon: Users },
-  { href: "/config", label: "Configurações", icon: Cog },
+  { href: "/cartaderecomendacao", label: "Carta de Recomendação", icon: Church, inDevelopment: true },
+  { href: "/cartaderecomendacao1dia", label: "Carta 1 Dia", icon: Church, inDevelopment: true },
+];
+
+// Links para usuários editores (podem editar presenças)
+const editorUserMenuItems: MenuItem[] = [
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/presencadecadastrados", label: "Presença de Cadastrados", icon: Users },
+  { href: "/reports", label: "Relatórios", icon: BarChart3 },
+  { href: "/scanner", label: "Scanner QR Code", icon: QrCode },
+  { href: "/register", label: "Cadastrar Membros", icon: UserPlus },
+  { href: "/cartaderecomendacao", label: "Carta de Recomendação", icon: Church, inDevelopment: true },
+  { href: "/cartaderecomendacao1dia", label: "Carta 1 Dia", icon: Church, inDevelopment: true },
+];
+
+// Links para administradores (acesso total)
+const superUserMenuItems: MenuItem[] = [
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/presencadecadastrados", label: "Presença de Cadastrados", icon: Users },
+  { href: "/reports", label: "Relatórios", icon: BarChart3 },
+  { href: "/scanner", label: "Scanner QR Code", icon: QrCode },
+  { href: "/register", label: "Cadastrar Membros", icon: UserPlus },
+  { href: "/cartaderecomendacao", label: "Carta de Recomendação", icon: Church, inDevelopment: true },
+  { href: "/cartaderecomendacao1dia", label: "Carta 1 Dia", icon: Church, inDevelopment: true },
+  { href: "/config", label: "Configurações", icon: Settings, inDevelopment: true },
 ];
 
 // Componente para logo com fallback
@@ -71,14 +93,36 @@ function LogoComponent() {
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { user } = useAuth();
-  if (!user) return null;
+  const { user, loading } = useAuth();
+  
+  console.log('🗂️ AppSidebar Debug:', { 
+    user: !!user, 
+    userEmail: user?.email, 
+    loading, 
+    pathname 
+  });
+  
+  // Se está carregando, não renderizar ainda
+  if (loading) {
+    console.log('🗂️ AppSidebar: Carregando autenticação...');
+    return null;
+  }
+  
+  // Se não há usuário após o carregamento, não mostrar sidebar
+  if (!user) {
+    console.log('🗂️ AppSidebar: Sem usuário autenticado');
+    return null;
+  }
 
   // Determinar quais links mostrar baseado no tipo de usuário
   const userType = getUserType(user.email || '');
   const menuItems = userType === UserType.SUPER_USER 
     ? superUserMenuItems
+    : userType === UserType.EDITOR_USER
+    ? editorUserMenuItems  
     : basicUserMenuItems;
+
+  console.log('🗂️ AppSidebar: Renderizando sidebar', { userType, menuItemsCount: menuItems.length });
 
   return (
     <Sidebar className="border-r bg-sidebar text-sidebar-foreground print:hidden" collapsible="icon">
@@ -92,6 +136,11 @@ export function AppSidebar() {
             {userType === UserType.BASIC_USER && (
               <span className="text-xs text-sidebar-muted-foreground">
                 Usuário Básico
+              </span>
+            )}
+            {userType === UserType.EDITOR_USER && (
+              <span className="text-xs text-sidebar-muted-foreground">
+                Editor de Presença
               </span>
             )}
           </div>
@@ -109,7 +158,19 @@ export function AppSidebar() {
               >
                 <Link href={item.href}>
                   <item.icon className="size-4" />
-                  <span>{item.label}</span>
+                  <span className="flex items-center gap-2">
+                    {item.label}
+                    {item.inDevelopment && (
+                      <Badge variant="secondary" className="text-xs px-1.5 py-0.5 hidden sm:inline-flex lg:inline-flex group-data-[state=collapsed]:hidden">
+                        Em Desenvolvimento
+                      </Badge>
+                    )}
+                    {item.inDevelopment && (
+                      <Badge variant="secondary" className="text-xs px-1 py-0.5 sm:hidden">
+                        Dev
+                      </Badge>
+                    )}
+                  </span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>

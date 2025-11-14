@@ -12,6 +12,31 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   
+  // Configuração webpack para resolver problemas de dependências Node.js
+  webpack: (config, { buildId, dev, isServer, defaultLoaders, nextRuntime, webpack }) => {
+    // Excluir módulos Node.js do bundle do cliente
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+        crypto: false,
+        stream: false,
+        url: false,
+        zlib: false,
+        http: false,
+        https: false,
+        assert: false,
+        os: false,
+        path: false,
+        child_process: false,
+      };
+    }
+    
+    return config;
+  },
+  
   // Configurações de imagem otimizadas para Plesk
   images: {
     unoptimized: true, // Necessário para static export
@@ -114,40 +139,6 @@ const nextConfig: NextConfig = {
         as: '*.js',
       },
     },
-  },
-
-  // Webpack optimizations para Plesk
-  webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
-    if (isPleskBuild && !dev) {
-      // Otimizações específicas para build Plesk
-      config.optimization = {
-        ...config.optimization,
-        splitChunks: {
-          chunks: 'all',
-          cacheGroups: {
-            vendor: {
-              test: /[\\/]node_modules[\\/]/,
-              name: 'vendors',
-              chunks: 'all',
-            },
-            common: {
-              name: 'common',
-              minChunks: 2,
-              chunks: 'all',
-              enforce: true,
-            },
-          },
-        },
-      };
-
-      // Minimizar bundle size
-      config.resolve.alias = {
-        ...config.resolve.alias,
-        '@': require('path').resolve(__dirname, 'src'),
-      };
-    }
-
-    return config;
   },
 
   // Configurações específicas para servidor estático (Plesk)

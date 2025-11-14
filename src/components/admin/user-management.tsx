@@ -5,27 +5,27 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
 } from '@/components/ui/popover';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
@@ -34,18 +34,18 @@ import { auth, db } from '@/lib/firebase';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
 import {
-  Check,
-  Edit,
-  Eye,
-  EyeOff,
-  Info,
-  MoreVertical,
-  RefreshCw,
-  Shield,
-  Trash2,
-  User,
-  UserPlus,
-  X
+    Check,
+    Edit,
+    Eye,
+    EyeOff,
+    Info,
+    MoreVertical,
+    RefreshCw,
+    Shield,
+    Trash2,
+    User,
+    UserPlus,
+    X
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
@@ -626,10 +626,20 @@ export function UserManagement() {
       return 'super';
     }
     
+    // Verifica se é usuário editor específico
+    if (user.email === 'presente@ipda.app.br' || user.email === 'cadastro@ipda.app.br') {
+      return 'editor';
+    }
+    
     // Depois verifica o perfil no Firestore
     const profile = userProfiles.find(p => p.uid === user.uid || p.email === user.email);
-    if (profile && profile.role === 'admin') {
-      return 'admin';
+    if (profile) {
+      if (profile.role === 'admin') {
+        return 'admin';
+      }
+      if (profile.role === 'editor') {
+        return 'editor';
+      }
     }
     
     return 'user';

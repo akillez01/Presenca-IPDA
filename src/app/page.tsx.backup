@@ -1,0 +1,814 @@
+
+"use client";
+import { AuthGuard } from "@/components/auth/auth-guard";
+import Head from "next/head";
+
+import { SynchronizedAnalytics } from "@/components/analytics/synchronized-analytics";
+import { StatisticsDashboard } from "@/components/statistics-dashboard";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { useRealtimeReports } from "@/hooks/use-reports";
+import type { AttendanceRecord } from "@/lib/types";
+import {
+    BarChart3,
+    Calendar,
+    TrendingUp,
+    UserCheck
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Bar, CartesianGrid, Cell, Legend, Pie, PieChart, BarChart as RechartsBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+
+// Definir todayDateStr uma única vez após os useState
+const todayDateStr = new Date().toISOString().slice(0, 10);
+
+// ... código existente ...
+
+const DashboardContent = () => {
+  const { reportData, loading, error, refreshData } = useRealtimeReports();
+  const [selectedDate, setSelectedDate] = useState("");
+  const [turnoFilter, setTurnoFilter] = useState("ALL");
+  const [cargoFilter, setCargoFilter] = useState("ALL");
+  const [regionFilter, setRegionFilter] = useState("ALL");
+  const [cidadeFilter, setCidadeFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+
+  // Estados para o modal de turno
+  const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
+  const [selectedShift, setSelectedShift] = useState<string>("");
+  const [selectedShiftData, setSelectedShiftData] = useState<AttendanceRecord[]>([]);
+
+  // ... outros estados ...
+
+  // Filtragem dos registros com timezone correto do Amazonas
+  const filteredRecords = useMemo(() => {
+    if (!reportData) return [];
+    return reportData.records.filter((r: AttendanceRecord) => {
+      // Filtro por data específica selecionada (com timezone do Amazonas)
+      if (selectedDate) {
+        if (!r.timestamp) return false;
+        // Converte para o timezone do Amazonas
+        const dataRegistro = new Date(r.timestamp);
+        const dataManaus = new Date(dataRegistro.toLocaleString("en-US", { timeZone: "America/Manaus" }));
+        const dataEscolhida = new Date(selectedDate + 'T00:00:00');
+        const dataEscolhidaManaus = new Date(dataEscolhida.toLocaleString("en-US", { timeZone: "America/Manaus" }));
+        
+        // Comparação exata de dia, mês e ano
+        if (
+          dataManaus.getDate() !== dataEscolhidaManaus.getDate() ||
+          dataManaus.getMonth() !== dataEscolhidaManaus.getMonth() ||
+          dataManaus.getFullYear() !== dataEscolhidaManaus.getFullYear()
+        ) {
+          return false;
+        }
+      }
+      
+      if (turnoFilter !== "ALL" && r.shift !== turnoFilter) return false;
+      if (cargoFilter !== "ALL" && r.churchPosition !== cargoFilter) return false;
+      if (regionFilter !== "ALL" && r.region !== regionFilter) return false;
+      if (cidadeFilter !== "ALL" && r.city !== cidadeFilter) return false;
+      if (statusFilter !== "ALL" && r.status !== statusFilter) return false;
+      if (search) {
+        const s = search.toLowerCase();
+        return (
+          r.fullName?.toLowerCase().includes(s) ||
+          r.cpf?.toLowerCase().includes(s) ||
+          r.pastorName?.toLowerCase().includes(s)
+        );
+      }
+      return true;
+    });
+  }, [reportData, selectedDate, turnoFilter, cargoFilter, regionFilter, cidadeFilter, statusFilter, search]);
+
+  // Estatísticas filtradas com timezone correto
+  const stats = useMemo(() => {
+    const data = selectedDate ? 
+      filteredRecords : 
+      filteredRecords.filter((r: AttendanceRecord) => {
+        if (!r.timestamp) return false;
+        // Converte para o timezone do Amazonas
+        const dataRegistro = new Date(r.timestamp);
+        const dataManaus = new Date(dataRegistro.toLocaleString("en-US", { timeZone: "America/Manaus" }));
+        const hoje = new Date();
+        const hojeManaus = new Date(hoje.toLocaleString("en-US", { timeZone: "America/Manaus" }));
+        
+        return dataManaus.getDate() === hojeManaus.getDate() && 
+               dataManaus.getMonth() === hojeManaus.getMonth() && 
+               dataManaus.getFullYear() === hojeManaus.getFullYear();
+      });
+    
+    const total = data.length;
+    const present = data.filter((r: AttendanceRecord) => r.status === "Presente").length;
+    const justified = data.filter((r: AttendanceRecord) => r.status === "Justificado").length;
+    const absent = data.filter((r: AttendanceRecord) => r.status === "Ausente").length;
+    const attendanceRate = total > 0 ? ((present / total) * 100).toFixed(1) : "0";
+    
+    return { total, present, justified, absent, attendanceRate };
+  }, [filteredRecords, selectedDate]);
+
+  const todayRecords = useMemo(() => {
+    return filteredRecords.filter((r: AttendanceRecord) => {
+      if (!r.timestamp) return false;
+      // Converte para o timezone do Amazonas
+      const dataRegistro = new Date(r.timestamp);
+      const dataManaus = new Date(dataRegistro.toLocaleString("en-US", { timeZone: "America/Manaus" }));
+      const hoje = new Date();
+      const hojeManaus = new Date(hoje.toLocaleString("en-US", { timeZone: "America/Manaus" }));
+      
+      return dataManaus.getDate() === hojeManaus.getDate() && 
+             dataManaus.getMonth() === hojeManaus.getMonth() && 
+             dataManaus.getFullYear() === hojeManaus.getFullYear();
+    });
+  }, [filteredRecords]);
+
+  // Função para lidar com clique no gráfico de turno
+  const handleShiftClick = (data: any) => {
+    if (data && data.activePayload && data.activePayload[0]) {
+      const clickedShift = data.activePayload[0].payload.shift;
+      setSelectedShift(clickedShift);
+      
+      // Filtra registros do turno selecionado
+      const dataToUse = selectedDate ? filteredRecords : todayRecords;
+      const shiftRecords = dataToUse.filter((r: AttendanceRecord) => r.shift === clickedShift);
+      setSelectedShiftData(shiftRecords);
+      setIsShiftModalOpen(true);
+    }
+  };
+
+  // Dados para gráficos
+  const chartData = useMemo(() => {
+    const data = selectedDate ? filteredRecords : todayRecords;
+    
+    // Presença por turno (apenas Manhã e Tarde)
+    const shifts = ["Manhã", "Tarde"];
+    const attendanceByShift = shifts.map(shift => ({
+      shift,
+      total: data.filter((r: AttendanceRecord) => r.shift === shift).length,
+      fill: shift === "Manhã" ? "#3b82f6" : "#10b981"
+    }));
+
+    // Status da presença
+    const statusData = [
+      { status: "Presente", total: data.filter((r: AttendanceRecord) => r.status === "Presente").length, fill: "#22c55e" },
+      { status: "Justificado", total: data.filter((r: AttendanceRecord) => r.status === "Justificado").length, fill: "#eab308" },
+      { status: "Ausente", total: data.filter((r: AttendanceRecord) => r.status === "Ausente").length, fill: "#ef4444" }
+    ];
+
+    // Justificados por turno
+    const justificadosByShift = shifts.map(shift => ({
+      shift,
+      total: data.filter((r: AttendanceRecord) => r.shift === shift && r.status === "Justificado").length,
+      fill: shift === "Manhã" ? "#fbbf24" : "#f59e0b"
+    }));
+
+    // Justificados por região (Top 5)
+    const justificadosRegionCounts: Record<string, number> = {};
+    data.filter((r: AttendanceRecord) => r.status === "Justificado").forEach((r: AttendanceRecord) => {
+      if (r.region) {
+        justificadosRegionCounts[r.region] = (justificadosRegionCounts[r.region] || 0) + 1;
+      }
+    });
+    
+    const justificadosColors = ["#f59e0b", "#eab308", "#fbbf24", "#fcd34d", "#fde68a"];
+    
+    const justificadosByRegion = Object.entries(justificadosRegionCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([region, total], index) => ({
+        region,
+        total,
+        fill: justificadosColors[index % justificadosColors.length]
+      }));
+
+    // Presença por cargo
+    const positions = [...new Set(data.map((r: AttendanceRecord) => r.churchPosition))];
+    const attendanceByPosition = positions.map(position => ({
+      position,
+      presente: data.filter((r: AttendanceRecord) => r.churchPosition === position && r.status === "Presente").length,
+      justificado: data.filter((r: AttendanceRecord) => r.churchPosition === position && r.status === "Justificado").length
+    }));
+
+    // Top 10 regiões
+    const regionCounts: Record<string, number> = {};
+    data.forEach((r: AttendanceRecord) => {
+      if (r.region) {
+        regionCounts[r.region] = (regionCounts[r.region] || 0) + 1;
+      }
+    });
+    
+    const regionColors = ["#3b82f6", "#10b981", "#8b5cf6", "#f97316", "#ef4444", 
+                         "#06b6d4", "#d946ef", "#84cc16", "#f59e0b", "#64748b"];
+    
+    const attendanceByRegion = Object.entries(regionCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([region, total], index) => ({
+        region,
+        total,
+        fill: regionColors[index % regionColors.length]
+      }));
+
+    return { attendanceByShift, statusData, attendanceByPosition, attendanceByRegion, justificadosByShift, justificadosByRegion };
+  }, [filteredRecords, todayRecords, selectedDate]);
+
+  // Paginação
+  const totalPages = Math.ceil((selectedDate ? filteredRecords.length : todayRecords.length) / pageSize);
+  const paginatedRecords = (selectedDate ? filteredRecords : todayRecords).slice(
+    (page - 1) * pageSize, 
+    page * pageSize
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [filteredRecords, selectedDate]);
+
+  // ... restante do código ...
+
+  return (
+    <div className="flex flex-col gap-8">
+      {/* Seletor de Data */}
+      <Card className="w-full">
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Calendar className="h-5 w-5" />
+            📅 Selecionar Data para Análise
+          </CardTitle>
+          <CardDescription>
+            Escolha uma data específica para visualizar as estatísticas de presença. 
+            Deixe em branco para ver dados de hoje.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col md:flex-row gap-4 items-end">
+            <div className="flex flex-col">
+              <label className="text-sm font-medium mb-2">Data para análise</label>
+              <Input 
+                type="date" 
+                value={selectedDate} 
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSelectedDate(e.target.value)} 
+                className="w-[180px]" 
+              />
+            </div>
+            <Button 
+              variant="outline" 
+              onClick={() => setSelectedDate("")} 
+              className="px-4"
+            >
+              🗑️ Limpar (Hoje)
+            </Button>
+          </div>
+          
+          {/* Resumo da data selecionada */}
+          <div className="mt-3 p-3 bg-blue-50 rounded-md">
+            <p className="text-sm text-blue-700">
+              📊 Visualizando dados de: <strong>
+                {selectedDate ? 
+                  new Date(selectedDate).toLocaleDateString('pt-BR') : 
+                  'Hoje (' + new Date().toLocaleDateString('pt-BR') + ')'
+                }
+              </strong> - Encontrados: <strong>
+                {selectedDate ? filteredRecords.length : todayRecords.length}
+              </strong> registros
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Cards de Estatísticas */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              {selectedDate ? 'Presentes na Data' : 'Presentes Hoje'}
+            </CardTitle>
+            <UserCheck className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{stats.present}</div>
+            <p className="text-xs text-muted-foreground">
+              {stats.present === 0 ? 
+                selectedDate ? 
+                  'Nenhum participante presente na data selecionada.' : 
+                  'Nenhum participante presente hoje.' : 
+                `Participantes presentes ${selectedDate ? 'na data' : 'hoje'}`
+              }
+            </p>
+          </CardContent>
+        </Card>
+        
+        {/* Outros cards de estatísticas similares */}
+      </div>
+
+      {/* Dashboard de Estatísticas Detalhadas */}
+      <StatisticsDashboard 
+        records={selectedDate ? filteredRecords : todayRecords} 
+        className="mb-8" 
+        selectedDate={selectedDate} 
+      />
+
+      <SynchronizedAnalytics />
+
+      {/* Seção de Gráficos Interativos */}
+      {stats.total > 0 && (
+        <div className="space-y-6">
+          {/* Primeira linha de gráficos - 3 gráficos principais */}
+          <div className="grid gap-6 md:grid-cols-3">
+            {/* Gráfico de Presença por Turno */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5" />
+                  Presença por Turno
+                </CardTitle>
+                <CardDescription>
+                  Distribuição de presenças nos diferentes turnos
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsBarChart 
+                      data={chartData.attendanceByShift}
+                      onClick={handleShiftClick}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="shift" />
+                      <YAxis />
+                      <Tooltip 
+                        formatter={(value) => [`${value} participantes`, "Total"]}
+                        labelFormatter={(label) => `Turno: ${label} (Clique para ver detalhes)`}
+                      />
+                      <Bar 
+                        dataKey="total" 
+                        name="Participantes"
+                        radius={[4, 4, 0, 0]}
+                      >
+                        {chartData.attendanceByShift.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </RechartsBarChart>
+                  </ResponsiveContainer>
+                </div>
+                <p className="text-xs text-gray-500 mt-2 text-center">
+                  💡 Clique nas barras para ver detalhes dos participantes por turno
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Gráfico de Status Geral */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5" />
+                  Status da Presença
+                </CardTitle>
+                <CardDescription>
+                  Distribuição geral dos status de presença
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={chartData.statusData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => 
+                          `${name}: ${(percent * 100).toFixed(0)}%`
+                        }
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="total"
+                      >
+                        {chartData.statusData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        formatter={(value) => [`${value} participantes`, ""]}
+                      />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* NOVO: Gráfico de Justificados */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5 text-yellow-600" />
+                  Justificados por Turno
+                </CardTitle>
+                <CardDescription>
+                  Ausências justificadas distribuídas por turno
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsBarChart data={chartData.justificadosByShift}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="shift" />
+                      <YAxis />
+                      <Tooltip 
+                        formatter={(value) => [`${value} justificados`, "Total"]}
+                        labelFormatter={(label) => `Turno: ${label}`}
+                      />
+                      <Bar 
+                        dataKey="total" 
+                        name="Justificados"
+                        radius={[4, 4, 0, 0]}
+                      >
+                        {chartData.justificadosByShift.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </RechartsBarChart>
+                  </ResponsiveContainer>
+                </div>
+                <p className="text-xs text-gray-500 mt-2 text-center">
+                  📝 Ausências com justificativa válida
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Segunda linha de gráficos - 2 gráficos maiores */}
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Gráfico de Presentes e Justificados por Cargo */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Presentes e Justificados por Cargo</CardTitle>
+                <CardDescription>
+                  Distribuição de presentes e justificados por cargo na igreja
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsBarChart
+                      data={chartData.attendanceByPosition}
+                      margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis 
+                        dataKey="position" 
+                        angle={-45} 
+                        textAnchor="end" 
+                        interval={0}
+                        height={60}
+                      />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar 
+                        dataKey="presente" 
+                        name="Presentes" 
+                        fill="#22c55e" 
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar 
+                        dataKey="justificado" 
+                        name="Justificados" 
+                        fill="#eab308" 
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </RechartsBarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* NOVO: Gráfico de Justificados por Região */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-yellow-600" />
+                  Justificados por Região
+                </CardTitle>
+                <CardDescription>
+                  Top 5 regiões com mais ausências justificadas
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsBarChart
+                      data={chartData.justificadosByRegion}
+                      margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis 
+                        dataKey="region" 
+                        angle={-45} 
+                        textAnchor="end" 
+                        interval={0}
+                        height={60}
+                      />
+                      <YAxis />
+                      <Tooltip 
+                        formatter={(value) => [`${value} justificados`, "Total"]}
+                        labelFormatter={(label) => `Região: ${label}`}
+                      />
+                      <Bar 
+                        dataKey="total" 
+                        name="Justificados"
+                        radius={[4, 4, 0, 0]}
+                      >
+                        {chartData.justificadosByRegion.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </RechartsBarChart>
+                  </ResponsiveContainer>
+                </div>
+                <p className="text-xs text-gray-500 mt-2 text-center">
+                  🌍 Distribuição geográfica das justificativas
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Terceira linha - Gráfico por região expandido */}
+          <div className="grid gap-6">
+            {/* Gráfico de Presença por Região */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Presença por Região</CardTitle>
+                <CardDescription>
+                  Top 10 regiões com maior participação
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsBarChart
+                      data={chartData.attendanceByRegion}
+                      margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis 
+                        dataKey="region" 
+                        angle={-45} 
+                        textAnchor="end" 
+                        interval={0}
+                        height={60}
+                      />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="total" name="Participantes" radius={[4, 4, 0, 0]}>
+                        {chartData.attendanceByRegion.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </RechartsBarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
+          {/* Gráfico de Top 10 Regiões */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Top 10 Regiões</CardTitle>
+              <CardDescription>
+                Regiões com maior número de registros
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsBarChart
+                    data={chartData.attendanceByRegion}
+                    layout="vertical"
+                    margin={{ top: 20, right: 30, left: 100, bottom: 20 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" />
+                    <YAxis 
+                      type="category" 
+                      dataKey="region" 
+                      width={80}
+                    />
+                    <Tooltip 
+                      formatter={(value) => [`${value} participantes`, "Total"]}
+                    />
+                    <Bar 
+                      dataKey="total" 
+                      name="Participantes"
+                      radius={[0, 4, 4, 0]}
+                    >
+                      {chartData.attendanceByRegion.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </RechartsBarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Tabela de Registros */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Registros {selectedDate ? 'da Data Selecionada' : 'de Hoje'}</CardTitle>
+          <CardDescription>
+            Lista das presenças registradas {selectedDate ? 'na data selecionada' : 'hoje'} 
+            no sistema ({selectedDate ? filteredRecords.length : todayRecords.length} registros).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {/* ... código da tabela ... */}
+        </CardContent>
+      </Card>
+
+      {/* Modal de Detalhes do Turno */}
+      <Dialog open={isShiftModalOpen} onOpenChange={setIsShiftModalOpen}>
+        <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              Detalhes do Turno: {selectedShift}
+            </DialogTitle>
+            <DialogDescription>
+              Lista completa dos participantes do turno {selectedShift} 
+              {selectedDate ? ` na data ${new Date(selectedDate).toLocaleDateString('pt-BR')}` : ' de hoje'} 
+              ({selectedShiftData.length} pessoas)
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Estatísticas do Turno */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-600">
+                  {selectedShiftData.length}
+                </div>
+                <div className="text-sm text-gray-600">Total</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-600">
+                  {selectedShiftData.filter(r => r.status === 'Presente').length}
+                </div>
+                <div className="text-sm text-gray-600">Presente</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-yellow-600">
+                  {selectedShiftData.filter(r => r.status === 'Justificado').length}
+                </div>
+                <div className="text-sm text-gray-600">Justificado</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-red-600">
+                  {selectedShiftData.filter(r => r.status === 'Ausente').length}
+                </div>
+                <div className="text-sm text-gray-600">Ausente</div>
+              </div>
+            </div>
+
+            {/* Lista de Participantes */}
+            <div>
+              <h4 className="font-semibold mb-3">👥 Lista de Participantes</h4>
+              {selectedShiftData.length === 0 ? (
+                <div className="text-center text-gray-500 py-8">
+                  Nenhum participante encontrado para este turno.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border text-sm">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="p-2 border text-left">Nome</th>
+                        <th className="p-2 border text-left">CPF</th>
+                        <th className="p-2 border text-left">Cargo</th>
+                        <th className="p-2 border text-left">Pastor</th>
+                        <th className="p-2 border text-left">Região</th>
+                        <th className="p-2 border text-left">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedShiftData.map((record, index) => (
+                        <tr key={record.id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                          <td className="p-2 border">{record.fullName}</td>
+                          <td className="p-2 border font-mono text-xs">{record.cpf}</td>
+                          <td className="p-2 border">{record.churchPosition}</td>
+                          <td className="p-2 border">{record.pastorName}</td>
+                          <td className="p-2 border">{record.region}</td>
+                          <td className="p-2 border">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              record.status === 'Presente' ? 'bg-green-100 text-green-800' :
+                              record.status === 'Justificado' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-red-100 text-red-800'
+                            }`}>
+                              {record.status || 'Presente'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Distribuição por Cargo */}
+            {selectedShiftData.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3">📊 Distribuição por Cargo</h4>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {Object.entries(
+                    selectedShiftData.reduce((acc: Record<string, number>, record) => {
+                      const cargo = record.churchPosition || 'Não informado';
+                      acc[cargo] = (acc[cargo] || 0) + 1;
+                      return acc;
+                    }, {})
+                  )
+                    .sort(([,a], [,b]) => b - a)
+                    .map(([cargo, count]) => (
+                      <div key={cargo} className="flex justify-between items-center p-2 bg-blue-50 rounded">
+                        <span className="text-sm">{cargo}:</span>
+                        <span className="font-bold text-blue-600">{count}</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {/* Botões de Ação */}
+            <div className="flex gap-2 pt-4 border-t">
+              <Button
+                onClick={() => {
+                  // Exportar dados do turno para CSV
+                  const headers = ['Nome', 'CPF', 'Cargo', 'Pastor', 'Região', 'Status', 'Data/Hora'];
+                  const csvContent = [
+                    headers.join(','),
+                    ...selectedShiftData.map(r => [
+                      `"${r.fullName || ''}"`,
+                      `"${r.cpf || ''}"`,
+                      `"${r.churchPosition || ''}"`,
+                      `"${r.pastorName || ''}"`,
+                      `"${r.region || ''}"`,
+                      `"${r.status || 'Presente'}"`,
+                      r.timestamp ? `"${new Date(r.timestamp).toLocaleDateString('pt-BR')} ${new Date(r.timestamp).toLocaleTimeString('pt-BR')}"` : ''
+                    ].join(','))
+                  ].join('\n');
+                  
+                  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                  const link = document.createElement('a');
+                  const url = URL.createObjectURL(blob);
+                  link.setAttribute('href', url);
+                  const dataStr = selectedDate || new Date().toISOString().split('T')[0];
+                  link.setAttribute('download', `relatorio-turno-${selectedShift}-${dataStr}.csv`);
+                  link.style.visibility = 'hidden';
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }}
+                variant="outline"
+                className="flex-1"
+              >
+                📥 Exportar Turno
+              </Button>
+              <Button
+                onClick={() => setIsShiftModalOpen(false)}
+                variant="default"
+                className="flex-1"
+              >
+                ✖️ Fechar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
+export default function Home() {
+  return (
+    <>
+      <Head>
+        <meta name="robots" content="noindex, nofollow" />
+        <meta name="referrer" content="strict-origin-when-cross-origin" />
+      </Head>
+      <AuthGuard>
+        <DashboardContent />
+      </AuthGuard>
+    </>
+  );
+}

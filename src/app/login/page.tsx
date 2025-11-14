@@ -74,7 +74,7 @@ export default function LoginPage() {
               IPDA - Sistema de Presença
             </CardTitle>
             <CardDescription>
-              Faça login com suas credenciais de administrador
+              Faça login com suas credenciai
             </CardDescription>
           </div>
         </CardHeader>
@@ -88,13 +88,13 @@ export default function LoginPage() {
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="email">Email do Administrador</Label>
+              <Label htmlFor="email">Email</Label>
               <div className="relative">
                 <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="email"
                   type="email"
-                  placeholder="admin@ipda.org.br"
+                  placeholder=""
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="pl-10"
@@ -111,7 +111,7 @@ export default function LoginPage() {
                 <Input
                   id="password"
                   type="password"
-                  placeholder="Sua senha de administrador"
+                  placeholder=""
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="pl-10"
@@ -134,7 +134,7 @@ export default function LoginPage() {
               ) : (
                 <>
                   <Shield className="mr-2 h-4 w-4" />
-                  Entrar como Admin
+                  Entrar
                 </>
               )}
             </Button>

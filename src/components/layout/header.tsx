@@ -4,12 +4,12 @@ import { FirebaseStatus } from "@/components/firebase-status";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
@@ -50,7 +50,8 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background/80 backdrop-blur-sm px-4 md:px-6 print:hidden">
-      <SidebarTrigger className="md:hidden" />
+      {/* Botão de menu móvel - sempre visível em mobile */}
+      <SidebarTrigger className="lg:hidden" />
       <div className="flex w-full items-center justify-between">
         <div className="flex items-center gap-2">
           <FirebaseStatus />

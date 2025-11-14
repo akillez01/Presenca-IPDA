@@ -1,0 +1,15 @@
+{
+  "timestamp": "2025-09-21T17:40:44.439Z",
+  "registrosTotais": 1815,
+  "registrosHoje": 1815,
+  "taxaPresenca": 100,
+  "status": "Conectado",
+  "qualidade": 100,
+  "ultimaAtualizacao": "13:40:44",
+  "detalhes": {
+    "amostraAnalisada": 100,
+    "proporcaoHoje": 100,
+    "proporcaoPresentes": 100,
+    "observacao": "Quase todos os registros são de hoje"
+  }
+}

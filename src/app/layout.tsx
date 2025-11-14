@@ -90,7 +90,7 @@ export default function RootLayout({
           />
         </noscript>
       </head>
-      <body className="font-body bg-background antialiased min-h-screen w-full">
+      <body className="font-body bg-background antialiased min-h-screen w-full" suppressHydrationWarning>
         {process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID && (
           <GoogleAnalytics 
             measurementId={process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID} 

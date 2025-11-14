@@ -2,17 +2,17 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  Building,
-  Calendar,
-  Clock,
-  Fingerprint,
-  Loader2,
-  Map,
-  MapPin,
-  Send,
-  User,
-  UserCog,
-  UserSquare
+    Building,
+    Calendar,
+    Clock,
+    Fingerprint,
+    Loader2,
+    Map,
+    MapPin,
+    Send,
+    User,
+    UserCog,
+    UserSquare
 } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -20,26 +20,27 @@ import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
+    Form,
+    FormControl,
+    FormField,
+    FormItem,
+    FormLabel,
+    FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { RegisterQRCode } from "@/components/ui/register-qrcode";
+
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from '@/hooks/use-auth';
 import { useSystemConfig } from "@/hooks/use-realtime";
 import { useToast } from "@/hooks/use-toast";
 import { addAttendance } from "@/lib/actions";
+import { UserType } from "@/lib/auth";
 import { attendanceSchema, type AttendanceFormValues } from "@/lib/schemas";
 
 // Interface para configuração dos campos
@@ -48,12 +49,13 @@ interface FieldInfo {
   label: string;
   icon: any;
   placeholder: string;
+  inputType?: 'text' | 'date';
   options?: string[];
 }
 
 // Função para criar campos do formulário dinamicamente
 const createFormFields = (config: any): FieldInfo[] => [
-  { name: "aniversario", label: "Aniversário", icon: Calendar, placeholder: "Selecione a data" },
+  { name: "birthday", label: "Nascimento", icon: Calendar, placeholder: "Selecione a data", inputType: 'date' },
   { name: "fullName", label: "Nome e Sobrenome", icon: User, placeholder: "Digite o nome completo" },
   { name: "cpf", label: "CPF", icon: Fingerprint, placeholder: "Apenas números" },
   { 
@@ -131,7 +133,7 @@ function AttendanceFormContent() {
       cpf: "",
       pastorName: "",
       cfoCourse: undefined,
-      aniversario: "",
+      birthday: "",
       city: "",
       reclassification: undefined,
       region: "",
@@ -148,7 +150,7 @@ function AttendanceFormContent() {
     "fullName", "cpf", "pastorName", "region", "city"
   ];
   const col2Names: (keyof AttendanceFormValues)[] = [
-    "aniversario", "reclassification", "cfoCourse", "churchPosition", "shift"
+    "birthday", "reclassification", "cfoCourse", "churchPosition", "shift"
   ];
   const col1Fields = col1Names.map(name => formFields.find(f => f.name === name));
   const col2Fields = col2Names.map(name => formFields.find(f => f.name === name));
@@ -198,7 +200,9 @@ function AttendanceFormContent() {
       }
       const normalizedValues: AttendanceFormValues = {
         ...values,
+        birthday: values.birthday ? values.birthday.trim() : undefined,
         churchPosition: normalizedPosition,
+        status: values.status || 'Presente'
       };
       const result = await addAttendance(normalizedValues);
       if (result.success) {
@@ -235,14 +239,14 @@ function AttendanceFormContent() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-2">
-      <div className="mb-4 flex justify-start">
-        <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white px-4 py-1 rounded" onClick={() => window.location.href = "/"}>Voltar</Button>
+    <div className="max-w-3xl mx-auto px-2 sm:px-4">
+      <div className="mb-3 sm:mb-4 flex justify-start">
+        <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white px-3 sm:px-4 py-1 rounded text-sm" onClick={() => window.location.href = "/"}>Voltar</Button>
       </div>
       <Card>
-      <CardHeader>
-        <CardTitle>Registrar Cadastro</CardTitle>
-        <CardDescription>
+      <CardHeader className="p-4 sm:p-6">
+        <CardTitle className="text-lg sm:text-xl">Registrar Cadastro</CardTitle>
+        <CardDescription className="text-sm sm:text-base">
           Preencha os campos abaixo para registrar a presença.
           {config && (
             <span className="block text-xs text-muted-foreground mt-1">
@@ -251,7 +255,7 @@ function AttendanceFormContent() {
           )}
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-4 sm:p-6">
         {success && (
           <div className="mb-4 text-green-700 font-bold text-lg text-center bg-green-100 border border-green-300 rounded p-2 shadow-sm">{success}</div>
         )}
@@ -259,9 +263,9 @@ function AttendanceFormContent() {
           <div className="mb-4 text-red-700 font-bold text-lg text-center bg-red-100 border border-red-300 rounded p-2 shadow-sm">{error}</div>
         )}
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="flex flex-col gap-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 sm:space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+              <div className="flex flex-col gap-3 sm:gap-4">
                 {col1Fields.map((fieldInfo) => fieldInfo && (
                   <FormField
                     key={fieldInfo.name}
@@ -273,9 +277,9 @@ function AttendanceFormContent() {
                           <fieldInfo.icon className="h-4 w-4 text-muted-foreground" />
                           {fieldInfo.label}
                         </FormLabel>
-                        {fieldInfo.name === "aniversario" ? (
+                        {fieldInfo.inputType === 'date' ? (
                           <FormControl>
-                            <Input type="text" placeholder={fieldInfo.placeholder} {...field} />
+                            <Input type="date" placeholder={fieldInfo.placeholder} {...field} />
                           </FormControl>
                         ) : fieldInfo.options ? (
                            <Select onValueChange={field.onChange} value={field.value ?? ""}>
@@ -313,9 +317,9 @@ function AttendanceFormContent() {
                           <fieldInfo.icon className="h-4 w-4 text-muted-foreground" />
                           {fieldInfo.label}
                         </FormLabel>
-                        {fieldInfo.name === "aniversario" ? (
+                        {fieldInfo.inputType === 'date' ? (
                           <FormControl>
-                            <Input type="text" placeholder={fieldInfo.placeholder} {...field} />
+                            <Input type="date" placeholder={fieldInfo.placeholder} {...field} />
                           </FormControl>
                         ) : fieldInfo.options ? (
                            <Select onValueChange={field.onChange} value={field.value ?? ""}>
@@ -366,23 +370,18 @@ function AttendanceFormContent() {
 
 export default function AttendanceFormPage() {
   const { user, loading } = useAuth();
+  const userPermissions = Array.isArray(user?.permissions) ? user?.permissions : [];
+  const userType = (user as any)?.userType as UserType | undefined;
   
   // Verificar se é usuário autorizado (tanto super usuários quanto usuários básicos podem registrar presença)
-  const isAuthorizedUser = user && (
-    // Super usuários (hardcoded)
-    user.email === 'admin@ipda.org.br' || 
-    user.email === 'marciodesk@ipda.app.br' || 
-    user.role === 'admin' || 
-    user.role === 'super' ||
-    // Usuários básicos específicos (hardcoded)
-    user.email === 'presente@ipda.app.br' ||
-    user.email === 'secretaria@ipda.org.br' ||
-    user.email === 'auxiliar@ipda.org.br' ||
-    user.email === 'cadastro@ipda.app.br' ||
-    // Usuários básicos criados dinamicamente (via sistema de gerenciamento)
-    user.role === 'basic_user' ||
-    // Compatibilidade adicional para roles do Firestore
-    user.role === 'user'
+  const isAuthorizedUser = !!user && (
+    userPermissions.includes('register') ||
+    userType === UserType.SUPER_USER ||
+    userType === UserType.EDITOR_USER ||
+    userType === UserType.BASIC_USER ||
+    user?.role === 'admin' ||
+    user?.role === 'editor' ||
+    user?.role === 'basic_user'
   );
 
   if (loading) {
@@ -398,14 +397,16 @@ export default function AttendanceFormPage() {
 
   if (!isAuthorizedUser) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Acesso restrito</h1>
-          <p className="text-muted-foreground">
+      <main className="min-h-screen flex items-center justify-center bg-background p-4">
+        <div className="text-center max-w-md">
+          <h1 className="text-xl sm:text-2xl font-bold mb-2">Acesso restrito</h1>
+          <p className="text-muted-foreground text-sm sm:text-base">
             Apenas usuários autorizados podem registrar presença.
-            <br />
+            <br className="hidden sm:block" />
+            <span className="sm:hidden"> </span>
             Se você tem uma conta de usuário básico e ainda não consegue acessar,
-            <br />
+            <br className="hidden sm:block" />
+            <span className="sm:hidden"> </span>
             contacte um administrador para verificar suas permissões.
           </p>
         </div>
@@ -414,11 +415,8 @@ export default function AttendanceFormPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-full max-w-2xl mx-auto flex flex-col items-center gap-8">
-        <div className="flex flex-col items-center gap-2">
-          <RegisterQRCode url="https://ipda.app.br/register/" />
-        </div>
+    <main className="min-h-screen flex items-center justify-center bg-background p-2 sm:p-4">
+      <div className="w-full max-w-2xl mx-auto flex flex-col items-center gap-4 sm:gap-8">
         <AttendanceFormContent />
       </div>
     </main>

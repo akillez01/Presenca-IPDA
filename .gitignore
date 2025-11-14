@@ -42,20 +42,78 @@ next-env.d.ts
 # Firebase credentials and secrets
 firebase-adminsdk-*.json
 *.serviceAccount.json
-.env*
+*firebase-adminsdk*.json
+reuniao-ministerial-firebase-adminsdk-*.json
+
+# Environment variables (ALL TYPES)
+.env
+.env.*
 .env.local
+.env.local.*
 .env.production
+.env.production.*
 .env.development
+.env.development.*
+.env.staging
+.env.test
+.env.ipda-app-br
+.env.plesk
+.env.admin.*
+.env.migration.*
 
-.ht
+# Sensitive configuration files
+.htaccess
+.htpasswd
+.ht*
 
-# Firestore rules
+# Firebase configuration and rules
 firestore-production.rules
 firestore.rules
+firestore.indexes.json
+firebase.json
+.firebaserc
 
-# Backup/Export
+# Backup files and exports
 *.csv
+*.json.backup
+*backup*.json
+backup-*.json
+*-backup-*.json
 
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+
+# Log files
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Documentation with sensitive info
 /md
+SETUP-PRODUCAO.md
+*CREDENCIAIS*
+*PASSWORDS*
+*SECRETS*
 
+# Test files with credentials
+test-*.cjs
+teste-*.cjs
+*-test-*.cjs
+verify-*.cjs
+debug-*.cjs
+stress-test-*.cjs
+create-event-users.cjs
+
+# APK and build artifacts
+*.apk
+android/app/release/
+sistema-presenca-ipda.apk
+
+# Specific sensitive files found
 reuniao-ministerial-firebase-adminsdk-fbsvc-0e7e21e6f7.json
+reuniao-ministerial-firebase-adminsdk-fbsvc-abbe4123aa.json

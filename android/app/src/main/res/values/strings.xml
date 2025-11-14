@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sistema de Presença IPDA</string>
+    <string name="title_activity_main">Sistema de Presença IPDA</string>
+    <string name="package_name">br.ipda.presenca</string>
+    <string name="custom_url_scheme">br.ipda.presenca</string>
+</resources>

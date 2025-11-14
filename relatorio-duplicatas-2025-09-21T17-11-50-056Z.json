@@ -1,0 +1,589 @@
+{
+  "timestamp": "2025-09-21T17:11:50.056Z",
+  "totalDuplicates": 25,
+  "totalDuplicatedRecords": 54,
+  "duplicates": [
+    {
+      "cpf": "85842567253",
+      "count": 3,
+      "records": [
+        {
+          "id": "FU2HTbZDz3oENgpPdoX6",
+          "fullName": "Cristiana seixas dacio de Oliveira ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Jorge Teixeira ",
+          "churchPosition": "Membro"
+        },
+        {
+          "id": "LzUpjr1cBsYy40nNshhT",
+          "fullName": "Cristiana Seixas Darci de Oliveira ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Bairro Jorge Teixeira 2",
+          "churchPosition": "Cooperador(a)"
+        },
+        {
+          "id": "geb1jkj7r2SQSjJQxVke",
+          "fullName": "Cristiana Seixas Darci de Oliveira ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Bairro Jorge Teixeira 2",
+          "churchPosition": "Cooperador(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "07089758281",
+      "count": 3,
+      "records": [
+        {
+          "id": "GYnmxxB1MKizwDeRHNkH",
+          "fullName": "Even Clíssia ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "São José 1 ",
+          "churchPosition": "Financeiro(a)"
+        },
+        {
+          "id": "NER0M5MheExFmP8TN4If",
+          "fullName": "Even Clíssia ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "São José 1 ",
+          "churchPosition": "Financeiro(a)"
+        },
+        {
+          "id": "ZCHhQG3EDUAgvdWNpMFL",
+          "fullName": "Even Clíssia ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "São José 1 ",
+          "churchPosition": "Líder Adore"
+        }
+      ]
+    },
+    {
+      "cpf": "01480016292",
+      "count": 2,
+      "records": [
+        {
+          "id": "LKLfwt8stytMBdFVyqbQ",
+          "fullName": "Carlos Felipe Ribeiro Monteiro ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Cidade Nova ",
+          "churchPosition": "Líder Reação"
+        },
+        {
+          "id": "QvUKfSJcHwd5deGsgGrN",
+          "fullName": "Carlos Felipe Ribeiro Monteiro ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Cidade Nova ",
+          "churchPosition": "Líder Reação"
+        }
+      ]
+    },
+    {
+      "cpf": "83629017215",
+      "count": 2,
+      "records": [
+        {
+          "id": "Ljb5BCe8zgkwJx3O3VhQ",
+          "fullName": "Dariana Fernandes Holanda",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "AM",
+          "churchPosition": "Outro"
+        },
+        {
+          "id": "zor0zxA561mJynEwJezJ",
+          "fullName": "Dariana Fernandes Holanda",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "AM",
+          "churchPosition": "Membro"
+        }
+      ]
+    },
+    {
+      "cpf": "03400472247",
+      "count": 2,
+      "records": [
+        {
+          "id": "ONzmuW0vajxi0wHkgD5w",
+          "fullName": "Gracineide Silva Pessoa",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Amazonas (AM)",
+          "churchPosition": "Financeiro(a)"
+        },
+        {
+          "id": "yGHsLf49FOgPjX77ThKB",
+          "fullName": "Gracineide Silva Pessoa",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Manacapuru",
+          "churchPosition": "Financeiro(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "03617168264",
+      "count": 3,
+      "records": [
+        {
+          "id": "PAm3kiBzYCZO9XoZL3Ct",
+          "fullName": "Cleuton Viana",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Jorge Teixeira",
+          "churchPosition": "Pastor"
+        },
+        {
+          "id": "bMVnocaUg1ZghxLS4486",
+          "fullName": "Cleuton Viana",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Jorge Teixeira",
+          "churchPosition": "Pastor"
+        },
+        {
+          "id": "jrIUYvdL48CsD5PbcbOi",
+          "fullName": "Cleuton Viana",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Jorge Teixeira",
+          "churchPosition": "Coordenador Etda (a)"
+        }
+      ]
+    },
+    {
+      "cpf": "58190899287",
+      "count": 3,
+      "records": [
+        {
+          "id": "QD60c4oRXAWYWOrHTj90",
+          "fullName": "ROZINEIDE NASCIMENTO DA SILVA BRITO",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Nova floresta ",
+          "churchPosition": "Financeiro(a)"
+        },
+        {
+          "id": "dOhRFI45xd4FQtcYYUQo",
+          "fullName": "ROZINEIDE NASCIMENTO DA SILVA BRITO",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Nova floresta ",
+          "churchPosition": "Financeiro(a)"
+        },
+        {
+          "id": "pcrHLF0wxXOxKGCsY5VK",
+          "fullName": "ROZINEIDE NASCIMENTO DA SILVA BRITO",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Nova floresta ",
+          "churchPosition": "Financeiro(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "27569381220",
+      "count": 2,
+      "records": [
+        {
+          "id": "QI7qTLAHXi52dz3JfTO9",
+          "fullName": "Maria Cacilda Silva dos Santos ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Jorge Teixeira ",
+          "churchPosition": "Membro"
+        },
+        {
+          "id": "SBpzpby5IiYKJE3aOds4",
+          "fullName": "Maria Cacilda Silva dos Santos ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Jorge Teixeira ",
+          "churchPosition": "Membro"
+        }
+      ]
+    },
+    {
+      "cpf": "68311362220",
+      "count": 2,
+      "records": [
+        {
+          "id": "R1PjddmcNcMPEHRrBf5w",
+          "fullName": "Rosalice Pinheiro Pereira do Nascimento ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Jorge Teixeira ",
+          "churchPosition": "Financeiro(a)"
+        },
+        {
+          "id": "vsQyMrbXnaP6EJgnxfQQ",
+          "fullName": "Rosalice Pinheiro Pereira do Nascimento ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Jorge Teixeira ",
+          "churchPosition": "Financeiro(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "62474731253",
+      "count": 2,
+      "records": [
+        {
+          "id": "Rmo3mfbKem22I6TNEG0j",
+          "fullName": "Maria Alcione Dos Santos Arcos ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Manaus ",
+          "churchPosition": "Cooperador(a)"
+        },
+        {
+          "id": "qQPZ4yaVzUqCpmD1q4Kk",
+          "fullName": "Maria Alcione Dos Santos Arcos ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "São jorge",
+          "churchPosition": "Cooperador(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "00831057270",
+      "count": 2,
+      "records": [
+        {
+          "id": "RqgksDpTfJz8P3XztG77",
+          "fullName": "Matheus Xavier dos Santos",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Manacapuru",
+          "churchPosition": "Pastor"
+        },
+        {
+          "id": "uqd5UbSJfMpyzzPBTfwQ",
+          "fullName": "Matheus Xavier dos Santos",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Manacapuru",
+          "churchPosition": "Pastor"
+        }
+      ]
+    },
+    {
+      "cpf": "94562970200",
+      "count": 2,
+      "records": [
+        {
+          "id": "U4X1qTXDy9MyNMR3tUho",
+          "fullName": "Elieu Paredio dos Santos ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Manacapuru",
+          "churchPosition": "Dirigente 1"
+        },
+        {
+          "id": "zAlIXwwhLcDj4BWZNJfb",
+          "fullName": "Elieu Paredio dos Santos ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Manacapuru ",
+          "churchPosition": "Dirigente 1"
+        }
+      ]
+    },
+    {
+      "cpf": "64270351268",
+      "count": 2,
+      "records": [
+        {
+          "id": "VKtBGfnkDiE3uyDvJ6tJ",
+          "fullName": "Francisca luciany Vaz rebelo ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Sede estadual ",
+          "churchPosition": "Cooperador(a)"
+        },
+        {
+          "id": "e1sgTLPrs76nf7phWVH8",
+          "fullName": "Francisca luciany Vaz rebelo ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Sede estadual ",
+          "churchPosition": "Cooperador(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "96889500253",
+      "count": 2,
+      "records": [
+        {
+          "id": "X5J1IF5YFhhAGeC9uC6I",
+          "fullName": "Diana peres da Costa ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Monte sete",
+          "churchPosition": "Cooperador(a)"
+        },
+        {
+          "id": "eTx4UZxvn5RUaJ6mxtoB",
+          "fullName": "Diana peres da Costa ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Monte sete",
+          "churchPosition": "Cooperador(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "75892790215",
+      "count": 2,
+      "records": [
+        {
+          "id": "XFoJoKasd1JrQgybjHIF",
+          "fullName": "Waldir da Silva ventilari junior.(Ventilari)",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Centro sul ",
+          "churchPosition": "Cooperador(a)"
+        },
+        {
+          "id": "kRWexC6MOu53HvaORUAU",
+          "fullName": "Waldir da Silva ventilari junior (Ventilari)",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Centro ",
+          "churchPosition": "Cooperador(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "87735725272",
+      "count": 2,
+      "records": [
+        {
+          "id": "Y9e4eDhuW6siYYgqSelO",
+          "fullName": "Rusiwel de Freitas Paz",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Nova Floresta ",
+          "churchPosition": "Membro"
+        },
+        {
+          "id": "vZop4j0YCllnLYEDXBTC",
+          "fullName": "Rusiwel de Freitas Paz",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Nova Floresta ",
+          "churchPosition": "Membro"
+        }
+      ]
+    },
+    {
+      "cpf": "91956277234",
+      "count": 2,
+      "records": [
+        {
+          "id": "YnlIGtoeIsv9vwxnpBEy",
+          "fullName": "VALDENIZE ALMEIDA DE SOUZA",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Zona leste ",
+          "churchPosition": "Financeiro(a)"
+        },
+        {
+          "id": "goFHGp0KLTnJPI7G9NAC",
+          "fullName": "VALDENIZE ALMEIDA DE SOUZA",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Zona leste ",
+          "churchPosition": "Financeiro(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "64677370249",
+      "count": 2,
+      "records": [
+        {
+          "id": "ZibupxRibCbaXsHkT8XL",
+          "fullName": "Rosimar da Silva Martins ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Nova floresta ",
+          "churchPosition": "Conselheiro(a)"
+        },
+        {
+          "id": "ZuxECaLFxeaPZS8RRo8R",
+          "fullName": "Rosimar da Silva Martins ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Nova floresta região de zumbi",
+          "churchPosition": "Financeiro(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "29077940278",
+      "count": 2,
+      "records": [
+        {
+          "id": "aUjITUH3Ry35xA6vk3iP",
+          "fullName": "Anna Mendes Ferreira ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Norte",
+          "churchPosition": "Cooperador(a)"
+        },
+        {
+          "id": "vvHrdUC3BwjV6rKJg2Px",
+          "fullName": "Anna Mendes Ferreira ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Amazonas ",
+          "churchPosition": "Cooperador(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "00060105208",
+      "count": 2,
+      "records": [
+        {
+          "id": "cu8fe3FrmxJSmDaw63mo",
+          "fullName": "Marília Ferreira Seabra ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Jorge Teixeira ",
+          "churchPosition": "Conselheiro(a)"
+        },
+        {
+          "id": "yfihmq4qkFCY81xFAr1j",
+          "fullName": "Marília Ferreira Seabra ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Jorge Teixeira ",
+          "churchPosition": "Conselheiro(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "60303646268",
+      "count": 2,
+      "records": [
+        {
+          "id": "fWJaIWFzF5CuzeDXpAo3",
+          "fullName": "Maikon Paiva do Nascimento ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Alfredo Nascimento",
+          "churchPosition": "Cooperador(a)"
+        },
+        {
+          "id": "lEUetmruXM6MQg9sJrAo",
+          "fullName": "Maikon Paiva do Nascimento ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Alfredo nascimento ",
+          "churchPosition": "Cooperador(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "74474014200",
+      "count": 2,
+      "records": [
+        {
+          "id": "hFpGQj1B547qRg8D3K5y",
+          "fullName": "Eduardo Guerreiro do Nascimento ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Jorge Teixeira ",
+          "churchPosition": "Secretário(a)"
+        },
+        {
+          "id": "sy8eZs2cHo9W153DTmFj",
+          "fullName": "Eduardo Guerreiro do Nascimento ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Jorge Teixeira ",
+          "churchPosition": "Secretário(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "00788917285",
+      "count": 2,
+      "records": [
+        {
+          "id": "hOxt356bOVQOfTh3EYUv",
+          "fullName": "Fabiana Souza do Nascimento",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Amazonas",
+          "churchPosition": "Financeiro(a)"
+        },
+        {
+          "id": "m4WYX9QSIRheU9dTmRNx",
+          "fullName": "Fabiana Souza do Nascimento ",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Amazonas",
+          "churchPosition": "Financeiro(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "70648181243",
+      "count": 2,
+      "records": [
+        {
+          "id": "kQvER26QwfGpIszRkOUx",
+          "fullName": "Wilfredo Viera Sojo",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Centro",
+          "churchPosition": "Cooperador(a)"
+        },
+        {
+          "id": "yaICZzUGPRSl9TyHYrsJ",
+          "fullName": "Wilfredo Viera Sojo",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "Central",
+          "churchPosition": "Cooperador(a)"
+        }
+      ]
+    },
+    {
+      "cpf": "62404350234",
+      "count": 2,
+      "records": [
+        {
+          "id": "sWtgrD3BiDT1QAaSTq9a",
+          "fullName": "Raquel da Trindade Maramaldo",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "São Francisco ",
+          "churchPosition": "Membro"
+        },
+        {
+          "id": "udh13jhGGoRMMFykbMEY",
+          "fullName": "Raquel da Trindade Maramaldo",
+          "timestamp": "2025-09-21T14:35:29.794Z",
+          "status": "Presente",
+          "region": "São Francisco ",
+          "churchPosition": "Membro"
+        }
+      ]
+    }
+  ]
+}

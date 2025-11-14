@@ -8,7 +8,7 @@ export const attendanceSchema = z.object({
   reclassification: z.enum(['Local', 'Setorial', 'Central', 'Casa de oração', 'Estadual', 'Regional'], { required_error: "Selecione uma reclassificação." }),
   pastorName: z.string().min(3, { message: "O nome do pastor deve ter pelo menos 3 caracteres." }),
   cfoCourse: z.enum(["SIM", "NÃO"]).optional(),
-  aniversario: z.string().optional(),
+  birthday: z.string().optional(), // Padronizado para birthday
   region: z.string().min(2, { message: "A região deve ter pelo menos 2 caracteres." }),
   churchPosition: z.enum([
     'Conselheiro(a)',

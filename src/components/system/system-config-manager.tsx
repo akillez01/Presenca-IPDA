@@ -19,8 +19,8 @@ import { useState } from 'react';
 const getUserDisplayName = (updatedBy: string): string => {
   const userMappings: Record<string, string> = {
     'xdVDGAYYn9aneqVIrPKLDeGn3ZC3': '👨‍💻 AchillesOS (Desenvolvedor)',
-    'admin@ipda.org.br': '🔧 Administrador Principal',
-    'marciodesk@ipda.app.br': '⚙️ Marcio - Admin Técnico',
+    'admin@ipda.org.br': '👨‍💻 AchillesOS (Desenvolvedor)',
+    'marciodesk@ipda.app.br': '👨‍💻 AchillesOS (Desenvolvedor)',
     'system-update': '🤖 Sistema (Atualização Automática)',
     'script-update-cargos': '📜 Script de Atualização de Cargos',
     'admin-panel': '🎛️ Painel Administrativo',
@@ -57,7 +57,16 @@ export function SystemConfigManager() {
       return;
     }
 
-    const updatedOptions = [...config[`${type}Options` as keyof typeof config] as string[], value.trim()];
+    const currentOptions = config[`${type}Options` as keyof typeof config] as string[];
+    if (!Array.isArray(currentOptions)) {
+      toast({
+        variant: "destructive",
+        title: "Erro de Configuração",
+        description: `As opções de ${type} não estão configuradas corretamente.`,
+      });
+      return;
+    }
+    const updatedOptions = [...currentOptions, value.trim()];
     
     try {
       setSaving(true);
@@ -66,7 +75,7 @@ export function SystemConfigManager() {
       const payload = {
         [`${type}Options`]: updatedOptions,
         lastUpdated: new Date(),
-        updatedBy: getUserDisplayName(user.email || user.uid || 'admin')
+        updatedBy: user.email || user.uid || 'admin'
       };
       if (configSnap.exists()) {
         await updateDoc(configRef, payload);
@@ -112,7 +121,7 @@ export function SystemConfigManager() {
       const payload = {
         [`${type}Options`]: updatedOptions,
         lastUpdated: new Date(),
-        updatedBy: getUserDisplayName(user.email || user.uid || 'admin')
+        updatedBy: user.email || user.uid || 'admin'
       };
       if (configSnap.exists()) {
         await updateDoc(configRef, payload);
@@ -175,7 +184,7 @@ export function SystemConfigManager() {
         shiftOptions: ['Manhã', 'Tarde', 'Noite'],
         statusOptions: ['Presente', 'Ausente', 'Justificado'],
         lastUpdated: new Date(),
-        updatedBy: getUserDisplayName(user.email || user.uid || 'system-reset')
+        updatedBy: user.email || user.uid || 'system-reset'
       };
       if (configSnap.exists()) {
         await updateDoc(configRef, payload);
@@ -437,39 +446,55 @@ export function SystemConfigManager() {
         </TabsContent>
       </Tabs>
 
-      <Card>
+      {/* Card com informações do desenvolvedor e sistema */}
+      <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-secondary/5">
         <CardHeader>
-          <CardTitle>Informações da Configuração</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-primary">
+            <span className="text-2xl">👨‍💻</span>
+            Informações do Sistema
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <Label>Última atualização:</Label>
-              <p className="text-muted-foreground">
-                {config.lastUpdated ? 
-                  (() => {
-                    try {
-                      // Tenta converter para Date se for um Timestamp do Firebase
-                      const date = config.lastUpdated instanceof Date 
-                        ? config.lastUpdated 
-                        : (config.lastUpdated as any).toDate?.() || new Date(config.lastUpdated);
-                      return date.toLocaleString('pt-BR');
-                    } catch {
-                      return 'Data inválida';
-                    }
-                  })()
-                  : 'Não disponível'
-                }
-              </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <div>
+                <Label className="text-sm font-semibold text-muted-foreground">Desenvolvedor</Label>
+                <p className="text-lg font-medium">AchillesOS</p>
+                <p className="text-sm text-muted-foreground">Desenvolvedor Principal</p>
+              </div>
+              <div>
+                <Label className="text-sm font-semibold text-muted-foreground">Projeto</Label>
+                <p className="font-medium">Sistema de Presença IPDA</p>
+                <p className="text-sm text-muted-foreground">Igreja Pentecostal Deus é Amor</p>
+              </div>
             </div>
-            <div>
-              <Label>Atualizado por:</Label>
-              <p className="text-muted-foreground">{getUserDisplayName(config.updatedBy)}</p>
+            <div className="space-y-3">
+              <div>
+                <Label className="text-sm font-semibold text-muted-foreground">Versão</Label>
+                <p className="text-lg font-medium">v1.2.0</p>
+                <p className="text-sm text-muted-foreground">Atualizado em {new Date().toLocaleDateString('pt-BR')}</p>
+              </div>
+              <div>
+                <Label className="text-sm font-semibold text-muted-foreground">Tecnologias</Label>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  <Badge variant="secondary" className="text-xs">Next.js 15</Badge>
+                  <Badge variant="secondary" className="text-xs">Firebase</Badge>
+                  <Badge variant="secondary" className="text-xs">TypeScript</Badge>
+                  <Badge variant="secondary" className="text-xs">Tailwind CSS</Badge>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="mt-6 pt-4 border-t border-primary/10">
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>© 2025 AchillesOS - Todos os direitos reservados</span>
+              <span className="flex items-center gap-1">
+                Feito com <span className="text-red-500">❤️</span> para IPDA
+              </span>
             </div>
           </div>
         </CardContent>
       </Card>
-      {/* Gerenciamento de campos do formulário removido conforme solicitado */}
     </div>
   );
 }

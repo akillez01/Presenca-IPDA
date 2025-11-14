@@ -1,0 +1,16 @@
+{
+  "name": "IPDA PWA Icon Generator",
+  "description": "Script para gerar ícones PWA a partir de SVG base",
+  "instructions": "Use este template para criar ícones nas dimensões corretas",
+  "sizes_needed": [
+    "72x72",
+    "96x96", 
+    "128x128",
+    "144x144",
+    "152x152",
+    "192x192",
+    "384x384",
+    "512x512"
+  ],
+  "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' fill='#1e40af' rx='64'/><text x='256' y='320' text-anchor='middle' fill='white' font-size='200' font-family='Arial, sans-serif' font-weight='bold'>I</text><text x='256' y='420' text-anchor='middle' fill='white' font-size='80' font-family='Arial, sans-serif'>PDA</text></svg>"
+}

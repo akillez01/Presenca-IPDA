@@ -1,5 +1,6 @@
 'use client';
 
+import { AuthGuard } from '@/components/auth/auth-guard';
 import { RouteGuard } from '@/components/auth/route-guard';
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { Header } from '@/components/layout/header';
@@ -12,13 +13,16 @@ const publicRoutes = ['/login', '/register', '/forgot-password'];
 
 export function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+
   const isPublicRoute = pathname ? publicRoutes.some(route => 
     pathname.startsWith(route)
   ) : false;
 
+  console.log('🔧 ClientLayout Debug:', { pathname, isPublicRoute });
+
   if (isPublicRoute) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted/20" suppressHydrationWarning>
         <Suspense fallback={<LoadingSpinner fullScreen />}>
           {children}
         </Suspense>
@@ -27,20 +31,22 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <RouteGuard currentPath={pathname ?? ''}>
-      <SidebarProvider>
-        <div className="flex min-h-screen">
-          <AppSidebar />
-          <div className="flex-1">
-            <Header />
-            <main className="p-4 sm:p-6 md:p-8">
-              <Suspense fallback={<LoadingSpinner />}>
-                {children}
-              </Suspense>
-            </main>
+    <AuthGuard>
+      <RouteGuard currentPath={pathname ?? ''}>
+        <SidebarProvider defaultOpen={false}>
+          <div className="flex min-h-screen" suppressHydrationWarning>
+            <AppSidebar />
+            <div className="flex-1">
+              <Header />
+              <main className="p-4 sm:p-6 md:p-8">
+                <Suspense fallback={<LoadingSpinner />}>
+                  {children}
+                </Suspense>
+              </main>
+            </div>
           </div>
-        </div>
-      </SidebarProvider>
-    </RouteGuard>
+        </SidebarProvider>
+      </RouteGuard>
+    </AuthGuard>
   );
 }

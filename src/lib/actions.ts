@@ -92,42 +92,85 @@ export async function getAttendanceByDateRange(start: Date, end: Date) {
   return await getPresencasByDateRange(start, end);
 }
 
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { db } from "./firebase";
 import {
-    addPresenca,
-    deleteAttendanceRecord,
-    getAllPresencas,
-    getPresencaByCpf,
-    getPresencas,
-    getPresencasByDateRange,
-    getPresencaStats,
-    updateAttendanceRecord as updateAttendanceRecordFirebase
+  addPresenca,
+  deleteAttendanceRecord,
+  getAllPresencas,
+  getPresencas,
+  getPresencasByDateRange,
+  getPresencaStats,
+  updateAttendanceRecord as updateAttendanceRecordFirebase
 } from "./presenca-mysql";
 import type { AttendanceFormValues } from "./schemas";
 
 export async function addAttendance(data: AttendanceFormValues) {
   try {
-    // Impedir duplicidade de CPF para todo o tempo
     const cleanCpf = (data.cpf || '').replace(/\D/g, '');
-    const existing = await getPresencaByCpf(cleanCpf);
-    if (existing) {
-      return { success: false, error: "Já existe um registro para este CPF. Não é possível cadastrar novamente." };
+    const normalizedStatus = data.status || 'Presente';
+    const normalizedShift = data.shift || 'Manhã';
+    const normalizedBirthday = data.birthday ? data.birthday.trim() : '';
+    
+    // Estratégia mais simples: buscar TODOS os registros do CPF e verificar apenas os de hoje
+    console.log(`🔍 Verificando duplicidade para CPF ${cleanCpf}`);
+    
+    // Buscar todos os registros deste CPF (sem usar índices compostos)
+    const cpfQuery = query(
+      collection(db, 'attendance'),
+      where('cpf', '==', cleanCpf)
+    );
+    
+    const cpfSnapshot = await getDocs(cpfQuery);
+    
+    // Verificar se algum é de hoje
+    const today = new Date();
+    const todayDateString = today.toDateString(); // Format: "Sat Oct 19 2025"
+    
+    let foundToday = false;
+    let existingTodayName = '';
+    
+    cpfSnapshot.forEach((doc) => {
+      const docData = doc.data();
+      const timestamp = docData.timestamp?.toDate ? docData.timestamp.toDate() : null;
+      
+      if (timestamp) {
+        const recordDateString = timestamp.toDateString();
+        if (recordDateString === todayDateString) {
+          foundToday = true;
+          existingTodayName = docData.fullName || 'Nome não informado';
+        }
+      }
+    });
+    
+    if (foundToday) {
+      console.log(`❌ CPF ${cleanCpf} já registrado hoje: ${existingTodayName}`);
+      return { 
+        success: false, 
+        error: `CPF ${data.cpf} já foi registrado hoje para ${existingTodayName}. Para registrar novamente, use a página de "Presença de Cadastrados".` 
+      };
     }
+    
+    console.log(`✅ CPF ${cleanCpf} liberado para registro (${cpfSnapshot.size} registros históricos, nenhum de hoje)`);
+    
     // Insere no Firestore
     await addPresenca({
       fullName: data.fullName,
       cpf: cleanCpf,
-      birthday: data.aniversario || "",
+      birthday: normalizedBirthday,
       reclassification: data.reclassification,
       pastorName: data.pastorName,
       region: data.region,
       churchPosition: data.churchPosition,
       city: data.city,
-      shift: data.shift,
-      status: "Presente"
+      shift: normalizedShift,
+      status: normalizedStatus
     });
+    
+    console.log(`✅ Registro criado com sucesso para ${data.fullName} (CPF: ${data.cpf})`);
     return { success: true };
   } catch (e) {
-    console.error("Error adding document: ", e);
+    console.error("❌ Error adding document: ", e);
     return { success: false, error: "Falha ao registrar presença. Verifique as configurações do banco de dados." };
   }
 }

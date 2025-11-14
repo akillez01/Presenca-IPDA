@@ -101,7 +101,11 @@ export function StatisticsDashboard({ records, className = "", selectedDate }: S
           Dados atualizados automaticamente baseados nos registros carregados ({records.length} registros)
           {selectedDate && (
             <div className="mt-1 text-sm font-medium text-blue-600">
-              📅 Visualizando dados de: {new Date(selectedDate).toLocaleDateString('pt-BR')}
+              📅 Visualizando dados de: {(() => {
+                const dataEscolhida = new Date(selectedDate + 'T00:00:00');
+                const dataEscolhidaManaus = new Date(dataEscolhida.toLocaleString("en-US", { timeZone: "America/Manaus" }));
+                return dataEscolhidaManaus.toLocaleDateString('pt-BR');
+              })()}
             </div>
           )}
           {records.length > 0 && (
@@ -112,7 +116,11 @@ export function StatisticsDashboard({ records, className = "", selectedDate }: S
                 const dates = records
                   .map(r => r.createdAt || r.timestamp)
                   .filter(Boolean)
-                  .map(d => d instanceof Date ? d : new Date(d));
+                  .map(d => {
+                    const date = d instanceof Date ? d : new Date(d);
+                    // Converte para timezone do Amazonas
+                    return new Date(date.toLocaleString("en-US", { timeZone: "America/Manaus" }));
+                  });
                 
                 if (dates.length === 0) return null;
                 
@@ -120,8 +128,9 @@ export function StatisticsDashboard({ records, className = "", selectedDate }: S
                 const newest = new Date(Math.max(...dates.map(d => d.getTime())));
                 
                 const today = new Date();
-                const isToday = oldest.toDateString() === today.toDateString() && 
-                               newest.toDateString() === today.toDateString();
+                const hojeManaus = new Date(today.toLocaleString("en-US", { timeZone: "America/Manaus" }));
+                const isToday = oldest.toDateString() === hojeManaus.toDateString() && 
+                               newest.toDateString() === hojeManaus.toDateString();
                 
                 if (isToday) {
                   return "• Dados de hoje";

@@ -10,22 +10,52 @@ declare global {
   }
 }
 
+// Função para detectar se está rodando no Capacitor/Mobile
+function isMobile(): boolean {
+  if (typeof window === 'undefined') return false;
+  
+  // Verificar se é Capacitor
+  try {
+    // @ts-ignore - Capacitor pode não estar disponível em web
+    if (window.Capacitor?.isNativePlatform?.()) {
+      return true;
+    }
+  } catch {
+    // Ignorar erro se Capacitor não estiver disponível
+  }
+  
+  // Verificar user agent para mobile
+  const userAgent = window.navigator.userAgent || '';
+  return /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+}
+
+// Configuração Firebase com fallbacks para mobile
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyA6_YWMcTzvKzCbZgl88SJvWpAUuE8LilE",
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "reuniao-ministerial.firebaseapp.com",
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "reuniao-ministerial",
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "reuniao-ministerial.appspot.com",
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-  // Só incluir measurementId se estiver definido (produção)
-  ...(process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID && {
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "23562502277",
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:23562502277:web:ad150c66054fe08241e9ec",
+  // Só incluir measurementId se estiver definido (produção) e não for mobile
+  ...(process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID && !isMobile() && {
     measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
   }),
 };
 
+console.log('🔥 Firebase Config Debug:', {
+  isMobile: isMobile(),
+  hasEnvVars: !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  config: {
+    ...firebaseConfig,
+    apiKey: firebaseConfig.apiKey ? `${firebaseConfig.apiKey.substring(0, 8)}...` : 'undefined'
+  }
+});
+
 // Função para validar se o domínio é válido para Analytics (utilitário)
 export function isValidDomainForAnalytics(): boolean {
   if (typeof window === "undefined") return false;
+  if (isMobile()) return false; // Não usar Analytics no mobile
   
   const hostname = window.location.hostname;
   const protocol = window.location.protocol;
@@ -76,6 +106,7 @@ let analytics: Analytics | null = null;
 // Função para obter analytics se necessário (para uso programático)
 export async function getAnalyticsInstance(): Promise<Analytics | null> {
   if (typeof window === "undefined") return null;
+  if (isMobile()) return null; // Não usar Analytics no mobile
   if (process.env.NODE_ENV !== "production") return null;
   if (!process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID) return null;
   if (!isValidDomainForAnalytics()) return null;

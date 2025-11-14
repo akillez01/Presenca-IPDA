@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "23562502277",
+    "project_id": "reuniao-ministerial",
+    "storage_bucket": "reuniao-ministerial.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:23562502277:android:ad150c66054fe08241e9ec",
+        "android_client_info": {
+          "package_name": "br.ipda.presenca"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "23562502277-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA6_YWMcTzvKzCbZgl88SJvWpAUuE8LilE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "23562502277-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

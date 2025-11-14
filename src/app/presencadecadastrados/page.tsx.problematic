@@ -1,0 +1,387 @@
+"use client"
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAuth } from "@/hooks/use-auth";
+import { db } from "@/lib/firebase";
+import type { AttendanceRecord } from "@/lib/types";
+import { collection, getDocs, orderBy, query } from "firebase/firestore";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+export default function PresencaCadastradosPage() {
+  // Estados principais
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Estados de filtro simplificados
+  const [search, setSearch] = useState("");
+  const [filterRegiao, setFilterRegiao] = useState("ALL");
+  
+  // Estados de paginação
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
+  
+  // Hooks
+  const { user } = useAuth();
+  const router = useRouter();
+
+  // Carregar dados
+  useEffect(() => {
+    if (!user) {
+      router.replace("/login");
+      return;
+    }
+    
+    loadRecords();
+  }, [user, router]);
+
+  const loadRecords = async () => {
+    if (!user) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      console.log('🔍 Iniciando busca de registros de presença...');
+      console.log('👤 Usuário logado:', {
+        uid: user.uid,
+        email: user.email
+      });
+      
+      const q = query(
+        collection(db, 'attendance'),
+        orderBy('timestamp', 'desc')
+      );
+      
+      const querySnapshot = await getDocs(q);
+      const attendanceData = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          // Converter Firestore Timestamp para Date se necessário
+          timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : data.timestamp || new Date()
+        } as AttendanceRecord;
+      });
+      
+      console.log(`📊 ${attendanceData.length} registros encontrados`);
+      setRecords(attendanceData);
+    } catch (err: any) {
+      console.error('❌ Erro ao buscar registros:', err);
+      let errorMessage = "Erro ao carregar registros de presença.";
+      
+      if (err?.code === 'permission-denied') {
+        errorMessage = "Você não tem permissão para acessar estes dados. Contate o administrador.";
+      } else if (err?.code === 'unauthenticated') {
+        errorMessage = "Sessão expirada. Faça login novamente.";
+        router.replace("/login");
+        return;
+      } else if (err?.message) {
+        errorMessage += ` Detalhes: ${err.message}`;
+      }
+      
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Exportar dados
+  const handleExport = () => {
+    try {
+      const csvHeaders = [
+        'Nome Completo',
+        'CPF',
+        'Status',
+        'Região',
+        'Cargo na Igreja',
+        'Nome do Pastor',
+        'Cidade',
+        'Turno',
+        'Reclassificação',
+        'Data/Hora'
+      ];
+
+      const csvData = filteredRecords.map(record => [
+        record.fullName || '',
+        record.cpf || '',
+        record.status || '',
+        record.region || '',
+        record.churchPosition || '',
+        record.pastorName || '',
+        record.city || '',
+        record.shift || '',
+        record.reclassification || '',
+        record.timestamp ? new Date(record.timestamp).toLocaleString('pt-BR') : ''
+      ]);
+
+      const csvContent = [csvHeaders, ...csvData]
+        .map(row => row.map(cell => `"${cell}"`).join(','))
+        .join('\\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      
+      if (link.download !== undefined) {
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `presenca-cadastrados-${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    } catch (error) {
+      console.error('Erro ao exportar:', error);
+      alert('Erro ao exportar dados. Tente novamente.');
+    }
+  };
+
+  // Regiões disponíveis
+  const availableRegions = Array.from(new Set(records.map(r => r.region).filter(Boolean)));
+
+  // Filtrar registros
+  const filteredRecords = records.filter(record => {
+    // Filtro por busca (nome ou CPF)
+    if (search) {
+      const searchTerm = search.toLowerCase().trim();
+      const matchesName = record.fullName?.toLowerCase().includes(searchTerm);
+      const matchesCpf = record.cpf?.toLowerCase().includes(searchTerm);
+      if (!matchesName && !matchesCpf) return false;
+    }
+    
+    // Filtro por região
+    if (filterRegiao && filterRegiao !== "ALL" && record.region !== filterRegiao) return false;
+    
+    return true;
+  });
+
+  // Paginação
+  const totalPages = Math.ceil(filteredRecords.length / itemsPerPage);
+  const paginatedRecords = filteredRecords.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-4 px-2 md:px-4">
+      {/* Filtros Simplificados */}
+      <Card className="w-full max-w-6xl mx-auto mb-4">
+        <CardHeader>
+          <CardTitle className="text-lg">Filtros</CardTitle>
+          <CardDescription>
+            <div className="text-sm text-muted-foreground">
+              Filtre e busque registros de presença
+            </div>
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-4">
+            {/* Busca */}
+            <div className="flex flex-col md:flex-row gap-4 items-end">
+              <div className="flex-1">
+                <label className="text-sm font-medium mb-2 block">🔍 Buscar</label>
+                <Input
+                  type="text"
+                  placeholder="Buscar por nome ou CPF..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  className="w-full"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Busca em nome e CPF
+                </p>
+              </div>
+            </div>
+            
+            {/* Filtro por Região */}
+            <div className="border-t pt-4">
+              <h3 className="text-sm font-medium mb-3">🌍 Filtro por Região</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium mb-1 block">🌍 Região</label>
+                  <Select
+                    value={filterRegiao}
+                    onValueChange={setFilterRegiao}
+                  >
+                    <SelectTrigger className="text-sm">
+                      <SelectValue placeholder="Todas as regiões..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">Todas as regiões</SelectItem>
+                      {availableRegions.map(region => (
+                        <SelectItem key={region} value={region}>{region}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+            
+            {/* Botões de Ação */}
+            <div className="flex gap-2 flex-wrap pt-2 border-t">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setSearch("");
+                  setFilterRegiao("ALL");
+                }}
+                className="px-4"
+              >
+                🗑️ Limpar Filtros
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleExport}
+                disabled={loading}
+                className="bg-green-600 hover:bg-green-700 text-white px-4"
+              >
+                📥 Exportar Completo
+              </Button>
+            </div>
+            
+            {/* Resumo de busca */}
+            {(search || (filterRegiao && filterRegiao !== "ALL")) && (
+              <div className="mt-3 p-3 bg-blue-50 rounded-md">
+                <p className="text-sm text-blue-700 font-medium mb-2">
+                  🔍 Filtros ativos - Encontrados: <strong>{filteredRecords.length}</strong> registros
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-1 text-xs text-blue-600">
+                  {search && <div>• Busca: "{search}"</div>}
+                  {filterRegiao && filterRegiao !== "ALL" && <div>• Região: "{filterRegiao}"</div>}
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tabela de Dados */}
+      <Card className="w-full max-w-6xl mx-auto shadow-lg">
+        <CardHeader>
+          <CardTitle>Presença de Cadastrados</CardTitle>
+          <CardDescription>
+            {records.length > 0 ? (
+              <div className="space-y-1">
+                <div className="text-base font-medium">
+                  📊 {records.length} registro(s) encontrado(s) - Exibindo {filteredRecords.length} após filtros
+                </div>
+              </div>
+            ) : 'Nenhum registro encontrado'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading && <div className="text-center py-4">Carregando...</div>}
+          {error && <div className="text-red-500 text-center py-4">{error}</div>}
+          {!loading && !error && filteredRecords.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8">Nenhum registro de presença encontrado.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              {/* Tabela para desktop */}
+              <div className="hidden md:block">
+                <table className="min-w-full border text-sm">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="p-2 border min-w-[120px]">Nome Completo</th>
+                      <th className="p-2 border w-[120px]">CPF</th>
+                      <th className="p-2 border w-[100px]">Status</th>
+                      <th className="p-2 border w-[100px]">Região</th>
+                      <th className="p-2 border w-[120px]">Cargo na Igreja</th>
+                      <th className="p-2 border min-w-[120px]">Nome do Pastor</th>
+                      <th className="p-2 border w-[100px]">Cidade</th>
+                      <th className="p-2 border w-[80px]">Turno</th>
+                      <th className="p-2 border w-[100px]">Reclassificação</th>
+                      <th className="p-2 border w-[140px]">Data/Hora</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedRecords.map((record) => (
+                      <tr key={record.id}>
+                        <td className="p-2 border">{record.fullName || ''}</td>
+                        <td className="p-2 border">{record.cpf || ''}</td>
+                        <td className="p-2 border">
+                          <Badge variant={record.status === 'Presente' ? 'default' : 'secondary'}>
+                            {record.status || 'N/A'}
+                          </Badge>
+                        </td>
+                        <td className="p-2 border">{record.region || ''}</td>
+                        <td className="p-2 border">{record.churchPosition || ''}</td>
+                        <td className="p-2 border">{record.pastorName || ''}</td>
+                        <td className="p-2 border">{record.city || ''}</td>
+                        <td className="p-2 border">{record.shift || ''}</td>
+                        <td className="p-2 border">{record.reclassification || ''}</td>
+                        <td className="p-2 border">
+                          {record.timestamp 
+                            ? new Date(record.timestamp).toLocaleString('pt-BR')
+                            : 'N/A'
+                          }
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Cards para mobile */}
+              <div className="md:hidden space-y-4">
+                {paginatedRecords.map((record) => (
+                  <Card key={record.id} className="p-4">
+                    <div className="space-y-2">
+                      <div className="font-semibold">{record.fullName || 'Nome não informado'}</div>
+                      <div className="text-sm text-gray-600">CPF: {record.cpf || 'N/A'}</div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={record.status === 'Presente' ? 'default' : 'secondary'}>
+                          {record.status || 'N/A'}
+                        </Badge>
+                        <span className="text-sm text-gray-600">
+                          {record.region || 'Região N/A'}
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {record.timestamp 
+                          ? new Date(record.timestamp).toLocaleString('pt-BR')
+                          : 'Data N/A'
+                        }
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Paginação */}
+              {totalPages > 1 && (
+                <div className="flex justify-center items-center gap-2 mt-6">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Anterior
+                  </Button>
+                  <span className="text-sm text-gray-600">
+                    Página {currentPage} de {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Próxima
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

@@ -87,6 +87,47 @@
   .badge {
     @apply inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors;
   }
+  
+  /* Melhorias para dispositivos touch */
+  .touch-manipulation {
+    touch-action: manipulation;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  /* Botões otimizados para mobile */
+  .mobile-button {
+    @apply min-h-[44px] min-w-[44px] touch-manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  
+  /* Inputs otimizados para mobile */
+  .mobile-input {
+    @apply min-h-[44px] touch-manipulation;
+    font-size: 16px; /* Previne zoom no iOS */
+  }
+  
+  /* Selects otimizados para mobile */
+  .mobile-select {
+    @apply min-h-[44px] touch-manipulation;
+    font-size: 16px; /* Previne zoom no iOS */
+  }
+  
+  /* Cards de edição mobile */
+  .mobile-edit-card {
+    @apply space-y-3 p-4;
+  }
+  
+  .mobile-edit-card input,
+  .mobile-edit-card select,
+  .mobile-edit-card textarea {
+    @apply mobile-input;
+  }
+  
+  .mobile-edit-card button {
+    @apply mobile-button;
+  }
 }
 /* Regras específicas para impressão - ocultar interface */
 @media print {
