@@ -35,43 +35,43 @@ const USERS_TO_FIX = [
     email: 'registro1@ipda.app.br',
     action: 'reset_password',
     password: 'registro@2025',
-    userType: 'BASIC_USER',
-    role: 'basic_user'
+    userType: 'EDITOR_USER',
+    role: 'editor'
   },
   {
     email: 'registro2@ipda.app.br',
     action: 'reset_password',
     password: 'registro@2025',
-    userType: 'BASIC_USER',
-    role: 'basic_user'
+    userType: 'EDITOR_USER',
+    role: 'editor'
   },
   {
     email: 'registro3@ipda.app.br',
     action: 'reset_password',
     password: 'registro@2025',
-    userType: 'BASIC_USER',
-    role: 'basic_user'
+    userType: 'EDITOR_USER',
+    role: 'editor'
   },
   {
     email: 'registro4@ipda.app.br',
     action: 'reset_password',
     password: 'registro@2025',
-    userType: 'BASIC_USER',
-    role: 'basic_user'
+    userType: 'EDITOR_USER',
+    role: 'editor'
   },
   {
     email: 'secretaria@ipda.org.br',
     action: 'reset_password',
     password: 'SecretariaIPDA@2025',
-    userType: 'BASIC_USER',
-    role: 'basic_user'
+    userType: 'EDITOR_USER',
+    role: 'editor'
   },
   {
     email: 'auxiliar@ipda.org.br',
     action: 'reset_password',
     password: 'AuxiliarIPDA@2025',
-    userType: 'BASIC_USER',
-    role: 'basic_user'
+    userType: 'EDITOR_USER',
+    role: 'editor'
   },
 ];
 

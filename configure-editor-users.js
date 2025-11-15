@@ -17,95 +17,148 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
-// Função para configurar permissões dos usuários específicos
-async function configureSpecificUsers() {
-  console.log('🔧 Configurando permissões para usuários específicos...\n');
-  
-  try {
-    // Usuários que devem ter permissão para editar presenças cadastrados
-    const usersToUpdate = [
-      {
-        uid: 'h9jGbyblHYXGMy52z6aDoKvWMeA3',
-        email: 'presente@ipda.app.br',
-        displayName: 'Controle de Presença IPDA'
-      },
-      {
-        uid: 'crOr8gf1npgSmpAKYL6DHy71NNt2', 
-        email: 'cadastro@ipda.app.br',
-        displayName: 'Cadastro IPDA'
-      }
-    ];
+const DEFAULT_PERMISSIONS = {
+  SUPER_USER: [
+    'dashboard',
+    'register',
+    'attendance',
+    'letters',
+    'presencadecadastrados',
+    'edit_attendance',
+    'reports',
+    'admin_users',
+    'config'
+  ],
+  EDITOR_USER: [
+    'dashboard',
+    'register',
+    'attendance',
+    'letters',
+    'presencadecadastrados',
+    'edit_attendance',
+    'reports'
+  ],
+  BASIC_USER: [
+    'dashboard',
+    'register',
+    'attendance',
+    'letters',
+    'presencadecadastrados'
+  ]
+};
 
-    for (const userInfo of usersToUpdate) {
-      try {
-        // 1. Configurar custom claims no Firebase Auth
-        const customClaims = {
-          userType: 'EDITOR_USER', // Novo tipo para editores
-          permissions: [
-            'dashboard', 
-            'register', 
-            'attendance', 
-            'letters',
-            'presencadecadastrados', // Permissão específica para editar presenças
-            'edit_attendance' // Permissão para editar registros de presença
-          ],
-          role: 'editor',
-          canEditAttendance: true // Flag específica para edição
-        };
-
-        await admin.auth().setCustomUserClaims(userInfo.uid, customClaims);
-        console.log(`✅ Custom claims configurados para: ${userInfo.email}`);
-
-        // 2. Criar/atualizar documento do usuário no Firestore
-        const userDoc = {
-          email: userInfo.email,
-          displayName: userInfo.displayName,
-          role: 'editor',
-          userType: 'EDITOR_USER',
-          permissions: customClaims.permissions,
-          canEditAttendance: true,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-          isActive: true
-        };
-
-        await db.collection('users').doc(userInfo.uid).set(userDoc, { merge: true });
-        console.log(`✅ Documento Firestore atualizado para: ${userInfo.email}`);
-
-        // 3. Verificar se o usuário existe no Auth
-        try {
-          const userRecord = await admin.auth().getUser(userInfo.uid);
-          console.log(`📋 Usuário ${userInfo.email} encontrado no Auth:`, {
-            uid: userRecord.uid,
-            email: userRecord.email,
-            emailVerified: userRecord.emailVerified,
-            disabled: userRecord.disabled
-          });
-        } catch (authError) {
-          console.log(`⚠️  Usuário ${userInfo.email} não encontrado no Auth`);
-        }
-
-      } catch (error) {
-        console.error(`❌ Erro ao configurar usuário ${userInfo.email}:`, error);
-      }
-    }
-
-    console.log('\n🎉 Configuração de permissões concluída!');
-    console.log('\n📋 Resumo das permissões concedidas:');
-    console.log('   - presente@ipda.app.br: Editor com permissão para editar presenças');
-    console.log('   - cadastro@ipda.app.br: Editor com permissão para editar presenças');
-    console.log('\n🔧 Próximos passos:');
-    console.log('   1. Os usuários podem fazer login normalmente');
-    console.log('   2. Terão acesso à página /presencadecadastrados');
-    console.log('   3. Poderão editar registros de presença');
-    console.log('   4. Terão permissões de usuário básico + edição');
-
-  } catch (error) {
-    console.error('❌ Erro geral na configuração:', error);
+function getDefaultRole(userType) {
+  switch (userType) {
+    case 'SUPER_USER':
+      return 'admin';
+    case 'EDITOR_USER':
+      return 'editor';
+    default:
+      return 'basic_user';
   }
 }
 
-// Executar configuração
+async function configureSpecificUsers() {
+  console.log('🔧 Configurando permissões para usuários de cadastro, registro e edição...\n');
+
+  const usersToUpdate = [
+    {
+      email: 'presente@ipda.app.br',
+      displayName: 'Controle de Presença IPDA',
+      userType: 'EDITOR_USER'
+    },
+    {
+      email: 'cadastro@ipda.app.br',
+      displayName: 'Cadastro IPDA',
+      userType: 'EDITOR_USER'
+    },
+    {
+      email: 'registro1@ipda.app.br',
+      displayName: 'Terminal de Registro 1 - IPDA',
+      userType: 'EDITOR_USER'
+    },
+    {
+      email: 'registro2@ipda.app.br',
+      displayName: 'Terminal de Registro 2 - IPDA',
+      userType: 'EDITOR_USER'
+    },
+    {
+      email: 'registro3@ipda.app.br',
+      displayName: 'Terminal de Registro 3 - IPDA',
+      userType: 'EDITOR_USER'
+    },
+    {
+      email: 'registro4@ipda.app.br',
+      displayName: 'Terminal de Registro 4 - IPDA',
+      userType: 'EDITOR_USER'
+    },
+    {
+      email: 'secretaria@ipda.org.br',
+      displayName: 'Secretaria IPDA',
+      userType: 'EDITOR_USER'
+    },
+    {
+      email: 'auxiliar@ipda.org.br',
+      displayName: 'Auxiliar IPDA',
+      userType: 'EDITOR_USER'
+    }
+  ];
+
+  for (const userInfo of usersToUpdate) {
+    try {
+      const userRecord = await admin.auth().getUserByEmail(userInfo.email);
+      const userType = userInfo.userType || 'EDITOR_USER';
+      const role = userInfo.role || getDefaultRole(userType);
+      const permissions = userInfo.permissions || DEFAULT_PERMISSIONS[userType] || ['dashboard'];
+      const timestamp = admin.firestore.FieldValue.serverTimestamp();
+      const canEditAttendance = permissions.includes('edit_attendance');
+      const canAccessReports = permissions.includes('reports');
+
+      await admin.auth().setCustomUserClaims(userRecord.uid, {
+        userType,
+        permissions,
+        role,
+        canEditAttendance,
+        canAccessReports
+      });
+      console.log(`✅ Custom claims configurados para: ${userInfo.email}`);
+
+      const userDocRef = db.collection('users').doc(userRecord.uid);
+      const userDocSnap = await userDocRef.get();
+      const userDoc = {
+        email: userInfo.email,
+        displayName: userInfo.displayName,
+        role,
+        userType,
+        permissions,
+        canEditAttendance,
+        canAccessReports,
+        canViewAttendance: permissions.includes('attendance'),
+        isActive: true,
+        active: true,
+        lastUpdated: timestamp,
+        updatedAt: timestamp
+      };
+
+      if (!userDocSnap.exists) {
+        userDoc.createdAt = timestamp;
+      }
+
+      await userDocRef.set(userDoc, { merge: true });
+      console.log(`✅ Documento Firestore atualizado para: ${userInfo.email}`);
+
+    } catch (error) {
+      console.error(`❌ Erro ao configurar usuário ${userInfo.email}:`, error.message || error);
+    }
+  }
+
+  console.log('\n🎉 Configuração de permissões concluída!');
+  console.log('\n📋 Resumo:');
+  usersToUpdate.forEach(({ email, userType }) => {
+    console.log(`   - ${email} ➜ ${userType}`);
+  });
+}
+
 configureSpecificUsers()
   .then(() => {
     console.log('\n✅ Script executado com sucesso!');

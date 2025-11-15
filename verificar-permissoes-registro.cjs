@@ -62,26 +62,30 @@ async function verificarPermissoesUsuarios() {
           console.log(`  ⚠️  Documento não existe no Firestore - criando...`);
 
           // Criar documento no Firestore
+          const timestamp = admin.firestore.FieldValue.serverTimestamp();
           await db
             .collection("users")
             .doc(userRecord.uid)
             .set({
               email: email,
-              userType: "BASIC_USER",
-              role: "basic_user",
+              userType: "EDITOR_USER",
+              role: "editor",
               isActive: true,
-              createdAt: admin.firestore.FieldValue.serverTimestamp(),
-              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-              permissions: {
-                canReadAttendance: true,
-                canWriteAttendance: true,
-                canReadUsers: false,
-                canWriteUsers: false,
-                canReadReports: false,
-                canWriteReports: false,
-                canReadLogs: false,
-                canWriteLogs: true,
-              },
+              active: true,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+              permissions: [
+                "dashboard",
+                "register",
+                "attendance",
+                "letters",
+                "presencadecadastrados",
+                "edit_attendance",
+                "reports"
+              ],
+              canEditAttendance: true,
+              canAccessReports: true,
+              canViewAttendance: true,
             });
 
           console.log(`  ✅ Documento criado no Firestore`);

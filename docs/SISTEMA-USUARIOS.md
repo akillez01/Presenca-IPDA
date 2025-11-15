@@ -19,22 +19,33 @@
   - ✅ Gerenciar Usuários
   - ✅ Configurações
 
-### 2. Usuário Básico (Secretaria/Auxiliar)
+### 2. Usuário Editor (Cadastro/Registro/Ajustes)
 
 - **Credenciais:**
 
+  - Email: `presente@ipda.app.br` / Senha: `presente@2025`
+  - Email: `cadastro@ipda.app.br` / Senha: `ipda@2025`
+  - Email: `registro1@ipda.app.br` / Senha: `registro@2025`
+  - Email: `registro2@ipda.app.br` / Senha: `registro@2025`
+  - Email: `registro3@ipda.app.br` / Senha: `registro@2025`
+  - Email: `registro4@ipda.app.br` / Senha: `registro@2025`
   - Email: `secretaria@ipda.org.br` / Senha: `SecretariaIPDA@2025`
   - Email: `auxiliar@ipda.org.br` / Senha: `AuxiliarIPDA@2025`
 
-- **Permissões (Acesso Limitado):**
+- **Permissões:**
   - ✅ Dashboard
   - ✅ Registrar Presença
   - ✅ Presença de Cadastrados
   - ✅ Carta de Recomendação
   - ✅ Carta 1 Dia
-  - ❌ Relatórios (Somente Super Usuário)
-  - ❌ Gerenciar Usuários (Somente Super Usuário)
-  - ❌ Configurações (Somente Super Usuário)
+  - ✅ Relatórios
+  - ✅ Editar Registros de Presença
+  - ❌ Gerenciar Usuários
+  - ❌ Configurações
+
+### 3. Usuário Básico (Reservado)
+
+- Nenhum usuário básico está ativo no momento. Este nível fica reservado para acessos futuros com escopo restrito.
 
 ## Recursos de Segurança
 

@@ -1,6 +1,22 @@
 import admin from 'firebase-admin';
 import { readFileSync } from 'fs';
 
+const SUPER_USERS = new Set([
+  'admin@ipda.org.br',
+  'marciodesk@ipda.app.br'
+]);
+
+const EDITOR_USERS = new Set([
+  'presente@ipda.app.br',
+  'cadastro@ipda.app.br',
+  'registro1@ipda.app.br',
+  'registro2@ipda.app.br',
+  'registro3@ipda.app.br',
+  'registro4@ipda.app.br',
+  'secretaria@ipda.org.br',
+  'auxiliar@ipda.org.br'
+]);
+
 // Inicializar Firebase Admin usando variável de ambiente ou novo arquivo padrão
 const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || './reuniao-ministerial-firebase-adminsdk-fbsvc-abbe4123aa.json';
 let serviceAccount;
@@ -25,9 +41,13 @@ export async function setUserClaims(email, userType) {
     const customClaims = {
       userType: userType,
       permissions: userType === 'SUPER_USER' 
-        ? ['dashboard', 'register', 'attendance', 'letters', 'reports', 'admin', 'config']
-        : ['dashboard', 'register', 'attendance', 'letters'],
-      role: userType === 'SUPER_USER' ? 'admin' : 'basic_user'
+        ? ['dashboard', 'register', 'attendance', 'letters', 'presencadecadastrados', 'edit_attendance', 'reports', 'admin_users', 'config']
+        : userType === 'EDITOR_USER'
+        ? ['dashboard', 'register', 'attendance', 'letters', 'presencadecadastrados', 'edit_attendance', 'reports']
+        : ['dashboard', 'register', 'attendance', 'letters', 'presencadecadastrados'],
+      role: userType === 'SUPER_USER' ? 'admin' : userType === 'EDITOR_USER' ? 'editor' : 'basic_user',
+      canEditAttendance: userType !== 'BASIC_USER',
+      canAccessReports: userType !== 'BASIC_USER'
     };
 
     await admin.auth().setCustomUserClaims(userRecord.uid, customClaims);
@@ -43,29 +63,27 @@ export async function setUserClaims(email, userType) {
 
 // Função para configurar automaticamente usuários básicos criados via interface
 export async function configureBasicUsersFromInterface() {
-  console.log('🔧 Configurando claims para usuários básicos...\n');
+  console.log('🔧 Configurando claims para usuários cadastrados...\n');
   
   try {
     // Listar todos os usuários
     const listUsersResult = await admin.auth().listUsers();
     
-    // Emails de super usuários (não alterar)
-    const superUsers = ['admin@ipda.org.br', 'marciodesk@ipda.app.br'];
-    
     for (const user of listUsersResult.users) {
       if (!user.email) continue;
       
       // Pular super usuários
-      if (superUsers.includes(user.email)) {
+      if (SUPER_USERS.has(user.email)) {
         console.log(`⚪ ${user.email} - Super usuário (não alterado)`);
         continue;
       }
       
-      // Configurar como usuário básico se não tiver claims ou se for usuário normal
+      const expectedType = EDITOR_USERS.has(user.email) ? 'EDITOR_USER' : 'BASIC_USER';
       const currentClaims = user.customClaims || {};
-      
-      if (!currentClaims.userType || currentClaims.userType === 'USER') {
-        await setUserClaims(user.email, 'BASIC_USER');
+      const hasDifferentType = currentClaims.userType !== expectedType;
+
+      if (!currentClaims.userType || currentClaims.userType === 'USER' || hasDifferentType) {
+        await setUserClaims(user.email, expectedType);
       } else {
         console.log(`⚪ ${user.email} - Já configurado como ${currentClaims.userType}`);
       }

@@ -94,25 +94,28 @@ export function useAuth() {
             console.log(`🔍 Tentando acessar documento: users/${firebaseUser.uid}`);
             
             const userDocSnap = await getDoc(userDocRef);
-            
+
             let extendedUser: ExtendedUser;
             const claimUserType = typeof claims.userType === 'string' ? claims.userType : undefined;
             const claimRole = typeof claims.role === 'string' ? claims.role : undefined;
             const claimPermissions = claims.permissions;
-            
+
             if (userDocSnap.exists()) {
               const userData = userDocSnap.data();
               console.log(`📄 Dados do usuário no Firestore:`, userData);
-              
-              // Determinar role e cargo baseado nos dados do Firestore
+
               const docRole = typeof userData.role === 'string' ? userData.role : undefined;
               const docUserType = typeof userData.userType === 'string' ? userData.userType : undefined;
               const docPermissions = userData.permissions;
 
-              const resolvedUserType = claimUserType || docUserType || getUserType(firebaseUser.email || '');
-              const resolvedRole = claimRole || docRole || mapUserTypeToRole(resolvedUserType);
-              const resolvedPermissions = resolvePermissions(resolvedUserType, claimPermissions || docPermissions);
-              
+              const resolvedUserType = docUserType || claimUserType || getUserType(firebaseUser.email || '');
+              const resolvedRole = docRole || claimRole || mapUserTypeToRole(resolvedUserType);
+              const resolvedPermissions = resolvePermissions(resolvedUserType, docPermissions || claimPermissions);
+
+              if (claimUserType && docUserType && claimUserType !== docUserType) {
+                console.log(`⚠️ Inconsistência de tipo: claims=${claimUserType} Firestore=${docUserType}. Preferindo Firestore.`);
+              }
+
               extendedUser = {
                 ...firebaseUser,
                 role: resolvedRole,

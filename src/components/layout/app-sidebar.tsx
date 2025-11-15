@@ -7,12 +7,12 @@ import { usePathname } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem
+    Sidebar,
+    SidebarContent,
+    SidebarHeader,
+    SidebarMenu,
+    SidebarMenuButton,
+    SidebarMenuItem
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
 import { getUserType, UserType } from "@/lib/auth";
@@ -115,7 +115,8 @@ export function AppSidebar() {
   }
 
   // Determinar quais links mostrar baseado no tipo de usuário
-  const userType = getUserType(user.email || '');
+  const claimedUserType = (user as any).userType as UserType | undefined;
+  const userType = claimedUserType || getUserType(user.email || '');
   const menuItems = userType === UserType.SUPER_USER 
     ? superUserMenuItems
     : userType === UserType.EDITOR_USER

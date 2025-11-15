@@ -15,14 +15,19 @@ const SUPER_USERS = {
 
 // Credenciais dos usuários básicos (acesso limitado)
 const BASIC_USERS = {
-  'secretaria@ipda.org.br': 'SecretariaIPDA@2025',
-  'auxiliar@ipda.org.br': 'AuxiliarIPDA@2025'
+  // Reservado para futuros usuários básicos
 };
 
-// Credenciais dos usuários editores (podem editar presenças)
+// Credenciais dos usuários editores (podem cadastrar e editar presenças)
 const EDITOR_USERS = {
-  'presente@ipda.app.br': 'presente@2025', // Usuário já existente no Firebase
+  'presente@ipda.app.br': 'presente@2025',
   'cadastro@ipda.app.br': 'ipda@2025',
+  'registro1@ipda.app.br': 'registro@2025',
+  'registro2@ipda.app.br': 'registro@2025',
+  'registro3@ipda.app.br': 'registro@2025',
+  'registro4@ipda.app.br': 'registro@2025',
+  'secretaria@ipda.org.br': 'SecretariaIPDA@2025',
+  'auxiliar@ipda.org.br': 'AuxiliarIPDA@2025'
 };
 
 // Todos os usuários válidos

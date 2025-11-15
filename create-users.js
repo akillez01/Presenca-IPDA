@@ -15,7 +15,7 @@ const usuariosExistentes = [
     uid: 'h9jGbyblHYXGMy52z6aDoKvWMeA3',
     password: 'presente@2025', // Definir senha para este usuário
     displayName: 'Controle de Presença IPDA',
-    tipo: 'Usuário Básico'
+    tipo: 'Usuário Editor'
   },
   {
     email: 'admin@ipda.org.br',
@@ -39,21 +39,43 @@ const usuariosNovos = [
     email: 'secretaria@ipda.org.br',
     password: 'SecretariaIPDA@2025',
     displayName: 'Secretaria IPDA',
-    tipo: 'Usuário Básico'
+    tipo: 'Usuário Editor'
   },
   {
     email: 'auxiliar@ipda.org.br',
     password: 'AuxiliarIPDA@2025',
     displayName: 'Auxiliar IPDA',
-    tipo: 'Usuário Básico'
+    tipo: 'Usuário Editor'
   },
   {
     email: 'cadastro@ipda.app.br',
     password: 'ipda@2025',
     displayName: 'Cadastro IPDA',
-    tipo: 'Usuário Básico'
+    tipo: 'Usuário Editor'
   }
 ];
+
+function resolveUserType(tipo) {
+  if (tipo === 'Super Usuário') return 'SUPER_USER';
+  if (tipo === 'Usuário Editor') return 'EDITOR_USER';
+  return 'BASIC_USER';
+}
+
+function resolveRole(userType) {
+  if (userType === 'SUPER_USER') return 'admin';
+  if (userType === 'EDITOR_USER') return 'editor';
+  return 'basic_user';
+}
+
+function resolvePermissions(userType) {
+  if (userType === 'SUPER_USER') {
+    return ['dashboard', 'register', 'attendance', 'letters', 'presencadecadastrados', 'edit_attendance', 'reports', 'admin_users', 'config'];
+  }
+  if (userType === 'EDITOR_USER') {
+    return ['dashboard', 'register', 'attendance', 'letters', 'presencadecadastrados', 'edit_attendance', 'reports'];
+  }
+  return ['dashboard', 'register', 'attendance', 'letters', 'presencadecadastrados'];
+}
 
 async function configurarUsuarios() {
   console.log('🚀 Iniciando configuração de usuários no Firebase...\n');
@@ -71,12 +93,13 @@ async function configurarUsuarios() {
       });
 
       // Definir custom claims para controle de acesso
+      const userType = resolveUserType(usuario.tipo);
       const customClaims = {
-        userType: usuario.tipo === 'Super Usuário' ? 'SUPER_USER' : 'BASIC_USER',
-        permissions: usuario.tipo === 'Super Usuário' 
-          ? ['dashboard', 'register', 'attendance', 'letters', 'reports', 'admin', 'config']
-          : ['dashboard', 'register', 'attendance', 'letters'],
-        role: usuario.tipo === 'Super Usuário' ? 'admin' : 'basic_user'
+        userType,
+        permissions: resolvePermissions(userType),
+        role: resolveRole(userType),
+        canEditAttendance: userType !== 'BASIC_USER',
+        canAccessReports: userType !== 'BASIC_USER'
       };
 
       await admin.auth().setCustomUserClaims(usuario.uid, customClaims);
@@ -126,12 +149,13 @@ async function configurarUsuarios() {
       }
 
       // Definir custom claims
+      const userType = resolveUserType(usuario.tipo);
       const customClaims = {
-        userType: usuario.tipo === 'Super Usuário' ? 'SUPER_USER' : 'BASIC_USER',
-        permissions: usuario.tipo === 'Super Usuário' 
-          ? ['dashboard', 'register', 'attendance', 'letters', 'reports', 'admin', 'config']
-          : ['dashboard', 'register', 'attendance', 'letters'],
-        role: usuario.tipo === 'Super Usuário' ? 'admin' : 'basic_user'
+        userType,
+        permissions: resolvePermissions(userType),
+        role: resolveRole(userType),
+        canEditAttendance: userType !== 'BASIC_USER',
+        canAccessReports: userType !== 'BASIC_USER'
       };
 
       await admin.auth().setCustomUserClaims(userRecord.uid, customClaims);
@@ -151,16 +175,16 @@ async function configurarUsuarios() {
   console.log('   • admin@ipda.org.br - Administrador IPDA');
   console.log('   • marciodesk@ipda.app.br - Márcio Administrador');
   
-  console.log('\n🟡 USUÁRIOS BÁSICOS (Acesso Limitado):');
+  console.log('\n� USUÁRIOS EDITORES (Cadastro, Registro e Ajustes):');
   console.log('   • presente@ipda.app.br - Controle de Presença IPDA');
+  console.log('   • cadastro@ipda.app.br - Cadastro IPDA');
   console.log('   • secretaria@ipda.org.br - Secretaria IPDA');
   console.log('   • auxiliar@ipda.org.br - Auxiliar IPDA');
-  console.log('   • cadastro@ipda.app.br - Cadastro IPDA');
   
-  console.log('\n🔐 Permissões dos Usuários Básicos:');
+  console.log('\n🔐 Permissões dos Usuários Editores:');
   console.log('   ✅ Dashboard, Registrar Presença, Presença de Cadastrados');
-  console.log('   ✅ Carta de Recomendação, Carta 1 Dia');
-  console.log('   ❌ Relatórios, Gerenciar Usuários, Configurações');
+  console.log('   ✅ Carta de Recomendação, Carta 1 Dia, Relatórios');
+  console.log('   ✅ Editar registros de presença');
 }
 
 // Executar script

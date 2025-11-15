@@ -4,12 +4,12 @@ import { FirebaseStatus } from "@/components/firebase-status";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
@@ -36,17 +36,21 @@ export function Header() {
     return email.split('@')[0].replace('.', ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
 
-  const getUserTypeLabel = (email: string) => {
-    const userType = getUserType(email);
+  const getUserTypeLabel = (email: string, overridenUserType?: UserType) => {
+    const userType = overridenUserType ?? getUserType(email);
     switch (userType) {
       case UserType.SUPER_USER:
         return { label: 'Super Usuário', color: 'text-green-600' };
+      case UserType.EDITOR_USER:
+        return { label: 'Editor de Presença', color: 'text-purple-600' };
       case UserType.BASIC_USER:
         return { label: 'Usuário Básico', color: 'text-blue-600' };
       default:
         return { label: 'Desconhecido', color: 'text-gray-600' };
     }
   };
+  const claimedUserType = (user as any)?.userType as UserType | undefined;
+
 
   return (
     <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background/80 backdrop-blur-sm px-4 md:px-6 print:hidden">
@@ -85,8 +89,8 @@ export function Header() {
                     </p>
                     <div className="flex items-center gap-1 mt-1">
                       <Shield className="h-3 w-3" />
-                      <span className={`text-xs font-medium ${getUserTypeLabel(user.email || '').color}`}>
-                        {getUserTypeLabel(user.email || '').label}
+                      <span className={`text-xs font-medium ${getUserTypeLabel(user.email || '', claimedUserType).color}`}>
+                        {getUserTypeLabel(user.email || '', claimedUserType).label}
                       </span>
                     </div>
                   </div>
