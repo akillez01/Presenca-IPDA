@@ -11,6 +11,7 @@ export type AttendanceRecord = {
   city: string;
   shift: string;
   status: string;
+  photoUrl?: string | null;
   absentReason?: string; // Motivo da falta/justificativa
   createdBy?: string; // ID do usuário que criou o registro
   createdAt?: Date; // Data de criação

@@ -2,6 +2,7 @@ import { Analytics, getAnalytics, isSupported } from "firebase/analytics";
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
 // Declaração global para gtag
 declare global {
@@ -99,6 +100,7 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 // Initialize Firebase services
 const db = getFirestore(app);
 const auth = getAuth(app);
+const storage = getStorage(app);
 
 // Analytics será inicializado via componente GoogleAnalytics
 let analytics: Analytics | null = null;
@@ -125,5 +127,5 @@ export async function getAnalyticsInstance(): Promise<Analytics | null> {
   return analytics;
 }
 
-export { analytics, app, auth, db };
+export { analytics, app, auth, db, storage };
 

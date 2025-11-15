@@ -1,5 +1,6 @@
 "use client";
 
+import { PhotoCaptureField } from "@/components/attendance/photo-capture-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -9,9 +10,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { deleteAttendance, getAttendanceRecords, updateAttendanceRecord, updateAttendanceStatus } from "@/lib/actions";
+import { deleteAttendancePhoto, getStoragePathFromUrl, uploadAttendancePhoto } from "@/lib/attendance-photo";
 import type { AttendanceRecord } from "@/lib/types";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+
+type PhotoSelectionState = {
+  file?: File;
+  dataUrl?: string | null;
+  preview?: string | null;
+} | null;
 
 export default function PresencaCadastradosPage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
@@ -29,6 +37,11 @@ export default function PresencaCadastradosPage() {
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [editModalFields, setEditModalFields] = useState<Partial<AttendanceRecord>>({});
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editPhotoSelection, setEditPhotoSelection] = useState<PhotoSelectionState>(null);
+  const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
+  const [editOriginalPhotoUrl, setEditOriginalPhotoUrl] = useState<string | null>(null);
+  const [editPhotoMarkedForRemoval, setEditPhotoMarkedForRemoval] = useState(false);
+  const [isUploadingEditPhoto, setIsUploadingEditPhoto] = useState(false);
 
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
@@ -217,8 +230,17 @@ Clique OK para confirmar ou Cancelar para abortar.`);
   }
 
   async function handleSaveRecord(id: string) {
+    if (!selectedRecord) {
+      return;
+    }
+
+    let uploadedPhoto: { downloadURL: string; storagePath: string } | null = null;
+    let photoUrlToDelete: string | null = null;
+
     try {
       setLoading(true);
+      setError(null);
+
       const currentTimestamp = new Date();
       const statusAtual = attendanceStatus[id] || "Presente";
       const justificativaAtual = justificativas[id] || "";
@@ -231,13 +253,49 @@ Clique OK para confirmar ou Cancelar para abortar.`);
         lastUpdated: currentTimestamp,
       };
 
+      if (editPhotoSelection) {
+        setIsUploadingEditPhoto(true);
+        try {
+          const cpfForUpload = (editModalFields.cpf ?? selectedRecord.cpf ?? "").toString();
+          uploadedPhoto = await uploadAttendancePhoto({
+            cpf: cpfForUpload,
+            file: editPhotoSelection.file,
+            dataUrl: editPhotoSelection.dataUrl ?? undefined,
+          });
+          updateData.photoUrl = uploadedPhoto.downloadURL;
+          if (editOriginalPhotoUrl && editOriginalPhotoUrl !== uploadedPhoto.downloadURL) {
+            photoUrlToDelete = editOriginalPhotoUrl;
+          }
+        } catch (uploadError) {
+          console.error("Erro ao enviar foto durante edição:", uploadError);
+          setError("Não foi possível enviar a nova foto. Verifique a conexão e tente novamente.");
+          return;
+        } finally {
+          setIsUploadingEditPhoto(false);
+        }
+      } else if (editPhotoMarkedForRemoval && editOriginalPhotoUrl) {
+        updateData.photoUrl = null;
+        photoUrlToDelete = editOriginalPhotoUrl;
+      }
+
       Object.entries(updateData).forEach(([key, value]) => {
-        if (value === undefined || value === null) {
+        if (value === undefined) {
           delete (updateData as Record<string, unknown>)[key];
         }
       });
 
-      await updateAttendanceRecord(id, updateData);
+      try {
+        await updateAttendanceRecord(id, updateData);
+      } catch (saveError) {
+        if (uploadedPhoto) {
+          try {
+            await deleteAttendancePhoto(uploadedPhoto.storagePath);
+          } catch (cleanupError) {
+            console.warn("⚠️ Falha ao remover foto após erro de atualização:", cleanupError);
+          }
+        }
+        throw saveError;
+      }
 
       setRecords((prev) =>
         prev.map((record) => {
@@ -252,6 +310,28 @@ Clique OK para confirmar ou Cancelar para abortar.`);
         })
       );
 
+      if (photoUrlToDelete) {
+        const storagePath = getStoragePathFromUrl(photoUrlToDelete);
+        if (storagePath && (!uploadedPhoto || storagePath !== uploadedPhoto.storagePath)) {
+          try {
+            await deleteAttendancePhoto(storagePath);
+          } catch (cleanupError) {
+            console.warn("⚠️ Falha ao remover foto antiga do Storage:", cleanupError);
+          }
+        }
+      }
+
+      if (uploadedPhoto) {
+        setEditPhotoPreview(uploadedPhoto.downloadURL);
+        setEditOriginalPhotoUrl(uploadedPhoto.downloadURL);
+      } else if (Object.prototype.hasOwnProperty.call(updateData, "photoUrl") && updateData.photoUrl === null) {
+        setEditPhotoPreview(null);
+        setEditOriginalPhotoUrl(null);
+      }
+
+      setEditPhotoSelection(null);
+      setEditPhotoMarkedForRemoval(false);
+
       setError(null);
       alert("Dados salvos com sucesso!");
       handleModalOpenChange(false);
@@ -259,6 +339,7 @@ Clique OK para confirmar ou Cancelar para abortar.`);
       console.error("Erro ao salvar dados:", err);
       setError("Erro ao salvar dados. Verifique a conexão.");
     } finally {
+      setIsUploadingEditPhoto(false);
       setLoading(false);
     }
   }
@@ -705,6 +786,11 @@ Recarregue a página para ver o estado atualizado.`);
       shift: record.shift || "",
       reclassification: record.reclassification || "",
     });
+    setEditPhotoSelection(null);
+    setEditPhotoPreview(record.photoUrl ?? null);
+    setEditOriginalPhotoUrl(record.photoUrl ?? null);
+    setEditPhotoMarkedForRemoval(false);
+    setIsUploadingEditPhoto(false);
     setIsEditModalOpen(true);
   }
 
@@ -717,6 +803,23 @@ Recarregue a página para ver o estado atualizado.`);
     if (!open) {
       setSelectedRecordId(null);
       setEditModalFields({});
+      setEditPhotoSelection(null);
+      setEditPhotoPreview(null);
+      setEditOriginalPhotoUrl(null);
+      setEditPhotoMarkedForRemoval(false);
+      setIsUploadingEditPhoto(false);
+    }
+  }
+
+  function handlePhotoSelectionChange(selection: PhotoSelectionState) {
+    if (selection) {
+      setEditPhotoSelection(selection);
+      setEditPhotoPreview(selection.preview ?? null);
+      setEditPhotoMarkedForRemoval(false);
+    } else {
+      setEditPhotoSelection(null);
+      setEditPhotoPreview(null);
+      setEditPhotoMarkedForRemoval(Boolean(editOriginalPhotoUrl));
     }
   }
 
@@ -1160,6 +1263,16 @@ Recarregue a página para ver o estado atualizado.`);
                 </div>
               </div>
 
+              <PhotoCaptureField
+                value={editPhotoPreview}
+                onChange={handlePhotoSelectionChange}
+                disabled={loading || isUploadingEditPhoto}
+                description="Atualize ou substitua a foto cadastrada. Limpe para remover a imagem."
+              />
+              {isUploadingEditPhoto && (
+                <p className="text-xs text-muted-foreground">Enviando foto, aguarde...</p>
+              )}
+
               <div className="space-y-3">
                 <Label>Status da presença</Label>
                 <Select
@@ -1191,14 +1304,14 @@ Recarregue a página para ver o estado atualizado.`);
               </div>
 
               <div className="flex flex-col sm:flex-row gap-2">
-                <Button size="sm" onClick={() => handleSaveRecord(selectedRecord.id)} disabled={loading}>
+                <Button size="sm" onClick={() => handleSaveRecord(selectedRecord.id)} disabled={loading || isUploadingEditPhoto}>
                   {loading ? "Salvando..." : "Salvar alterações"}
                 </Button>
                 <Button
                   size="sm"
                   variant="secondary"
                   onClick={() => handleSubmitAttendance(selectedRecord.id)}
-                  disabled={loading}
+                  disabled={loading || isUploadingEditPhoto}
                   className="bg-green-600 hover:bg-green-700 text-white"
                 >
                   {loading ? "Registrando..." : "Registrar presença"}

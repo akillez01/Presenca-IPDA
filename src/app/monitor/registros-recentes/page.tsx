@@ -1,6 +1,7 @@
 "use client";
 
 import { Activity, ArrowLeft, RefreshCcw } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -8,9 +9,9 @@ import { Button } from "@/components/ui/button";
 import { useRealtimeReports } from "@/hooks/use-reports";
 import type { AttendanceRecord } from "@/lib/types";
 
-const formatManausDateTime = (timestamp?: string) => {
+const formatManausDateTime = (timestamp?: string | Date) => {
   if (!timestamp) return "Data não informada";
-  const dataOriginal = new Date(timestamp);
+  const dataOriginal = timestamp instanceof Date ? timestamp : new Date(timestamp);
   const dataManaus = new Date(
     dataOriginal.toLocaleString("en-US", { timeZone: "America/Manaus" })
   );
@@ -158,6 +159,7 @@ export default function RecentRegistrationsMonitorPage() {
                 };
 
                 const key = record.id || `${record.cpf}-${record.timestamp}`;
+                const photoSrc = record.photoUrl || "/images/placeholder-avatar-3x4.svg";
 
                 return (
                   <div
@@ -166,27 +168,42 @@ export default function RecentRegistrationsMonitorPage() {
                   >
                     <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.12),_rgba(15,23,42,0.4))]" />
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="space-y-2">
-                        <p className="text-xs uppercase tracking-[0.4em] text-emerald-200/70">
-                          Última presença registrada
-                        </p>
-                        <h2 className="text-3xl font-semibold text-white sm:text-4xl">
-                          {record.fullName || "Nome não informado"}
-                        </h2>
-                        <div className="flex flex-wrap items-center gap-3 text-base text-slate-300">
-                          <span className="font-medium text-slate-100">
-                            {record.region || "Região não informada"}
-                          </span>
-                          {record.churchPosition && (
-                            <span className="text-sm text-slate-400">
-                              {record.churchPosition}
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
+                        <div className="flex-shrink-0">
+                          <div className="relative w-28 sm:w-32">
+                            <div className="relative aspect-[3/4] w-full overflow-hidden rounded-3xl border border-emerald-500/20 bg-slate-900/70 shadow-inner">
+                              <Image
+                                src={photoSrc}
+                                alt={`Foto de ${record.fullName || 'participante'}`}
+                                fill
+                                sizes="(max-width: 640px) 112px, 128px"
+                                className="object-cover"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <p className="text-xs uppercase tracking-[0.4em] text-emerald-200/70">
+                            Última presença registrada
+                          </p>
+                          <h2 className="text-3xl font-semibold text-white sm:text-4xl">
+                            {record.fullName || "Nome não informado"}
+                          </h2>
+                          <div className="flex flex-wrap items-center gap-3 text-base text-slate-300">
+                            <span className="font-medium text-slate-100">
+                              {record.region || "Região não informada"}
                             </span>
-                          )}
-                          {record.shift && (
-                            <span className="text-sm text-slate-400">
-                              Turno: {record.shift}
-                            </span>
-                          )}
+                            {record.churchPosition && (
+                              <span className="text-sm text-slate-400">
+                                {record.churchPosition}
+                              </span>
+                            )}
+                            {record.shift && (
+                              <span className="text-sm text-slate-400">
+                                Turno: {record.shift}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-3 text-right">

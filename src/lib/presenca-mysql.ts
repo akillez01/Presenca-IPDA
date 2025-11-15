@@ -193,6 +193,7 @@ function mapDocumentToPresenca(doc: any): Presenca {
     shift: data.shift ?? "",
     status: data.status ?? "",
     absentReason: data.absentReason ?? "",
+    photoUrl: data.photoUrl ?? null,
     createdAt,
   };
 }
@@ -255,6 +256,7 @@ export type Presenca = {
   status: string;
   absentReason?: string; // Motivo da falta/justificativa
   createdAt?: Date;
+  photoUrl?: string | null;
 };
 
 export async function getPresencas(): Promise<Presenca[]> {
@@ -301,6 +303,7 @@ export async function getAttendance(): Promise<Presenca[]> {
         city: data.city ?? "",
         shift: data.shift ?? "",
         status: data.status ?? "",
+        photoUrl: data.photoUrl ?? null,
         createdAt,
       } as Presenca;
     })
@@ -335,6 +338,7 @@ export async function getPresencaByCpf(cpf: string): Promise<Presenca | null> {
       city: data.city ?? "",
       shift: data.shift ?? "",
       status: data.status ?? "",
+        photoUrl: data.photoUrl ?? null,
       createdAt,
     } as Presenca;
   }

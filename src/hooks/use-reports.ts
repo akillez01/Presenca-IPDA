@@ -86,6 +86,7 @@ export function useReports() {
         lastUpdated: data.lastUpdated ? new Date(data.lastUpdated) : undefined,
         absentReason: data.absentReason ?? '',
         birthday: data.birthday ?? '',
+        photoUrl: data.photoUrl ?? null,
       }));
 
       const totalRecords = processedRecords.length;

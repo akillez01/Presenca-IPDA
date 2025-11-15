@@ -95,13 +95,13 @@ export async function getAttendanceByDateRange(start: Date, end: Date) {
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "./firebase";
 import {
-  addPresenca,
-  deleteAttendanceRecord,
-  getAllPresencas,
-  getPresencas,
-  getPresencasByDateRange,
-  getPresencaStats,
-  updateAttendanceRecord as updateAttendanceRecordFirebase
+    addPresenca,
+    deleteAttendanceRecord,
+    getAllPresencas,
+    getPresencas,
+    getPresencasByDateRange,
+    getPresencaStats,
+    updateAttendanceRecord as updateAttendanceRecordFirebase
 } from "./presenca-mysql";
 import type { AttendanceFormValues } from "./schemas";
 
@@ -154,7 +154,7 @@ export async function addAttendance(data: AttendanceFormValues) {
     console.log(`✅ CPF ${cleanCpf} liberado para registro (${cpfSnapshot.size} registros históricos, nenhum de hoje)`);
     
     // Insere no Firestore
-    await addPresenca({
+    const createdId = await addPresenca({
       fullName: data.fullName,
       cpf: cleanCpf,
       birthday: normalizedBirthday,
@@ -164,11 +164,12 @@ export async function addAttendance(data: AttendanceFormValues) {
       churchPosition: data.churchPosition,
       city: data.city,
       shift: normalizedShift,
-      status: normalizedStatus
+      status: normalizedStatus,
+      photoUrl: data.photoUrl ?? null
     });
     
     console.log(`✅ Registro criado com sucesso para ${data.fullName} (CPF: ${data.cpf})`);
-    return { success: true };
+    return { success: true, id: createdId };
   } catch (e) {
     console.error("❌ Error adding document: ", e);
     return { success: false, error: "Falha ao registrar presença. Verifique as configurações do banco de dados." };

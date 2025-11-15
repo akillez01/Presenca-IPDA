@@ -17,6 +17,7 @@ import {
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 
+import { PhotoCaptureField } from "@/components/attendance/photo-capture-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -40,6 +41,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useSystemConfig } from "@/hooks/use-realtime";
 import { useToast } from "@/hooks/use-toast";
 import { addAttendance } from "@/lib/actions";
+import { deleteAttendancePhoto, uploadAttendancePhoto } from "@/lib/attendance-photo";
 import { UserType } from "@/lib/auth";
 import { attendanceSchema, type AttendanceFormValues } from "@/lib/schemas";
 
@@ -52,6 +54,12 @@ interface FieldInfo {
   inputType?: 'text' | 'date';
   options?: string[];
 }
+
+type PhotoSelectionState = {
+  file?: File;
+  dataUrl?: string | null;
+  preview?: string | null;
+} | null;
 
 // Função para criar campos do formulário dinamicamente
 const createFormFields = (config: any): FieldInfo[] => [
@@ -124,6 +132,8 @@ const createFormFields = (config: any): FieldInfo[] => [
 function AttendanceFormContent() {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoSelection, setPhotoSelection] = useState<PhotoSelectionState>(null);
   const { config, loading } = useSystemConfig();
 
   const form = useForm<AttendanceFormValues>({
@@ -162,6 +172,7 @@ function AttendanceFormContent() {
     setIsSubmitting(true);
     setSuccess(null);
     setError(null);
+    let uploadedPhoto: { downloadURL: string; storagePath: string } | null = null;
     try {
       // Normaliza o valor do cargo para garantir que 'regente' seja convertido para 'Regente'
       // Lista de cargos válidos exatamente como no enum
@@ -202,18 +213,54 @@ function AttendanceFormContent() {
         ...values,
         birthday: values.birthday ? values.birthday.trim() : undefined,
         churchPosition: normalizedPosition,
-        status: values.status || 'Presente'
+        status: values.status || 'Presente',
+        photoUrl: undefined
       };
+
+      if (photoSelection?.file || photoSelection?.dataUrl) {
+        try {
+          setIsUploadingPhoto(true);
+          uploadedPhoto = await uploadAttendancePhoto({
+            cpf: values.cpf,
+            file: photoSelection?.file,
+            dataUrl: photoSelection?.dataUrl ?? undefined
+          });
+          normalizedValues.photoUrl = uploadedPhoto.downloadURL;
+        } catch (photoError) {
+          console.error('❌ Erro ao enviar foto:', photoError);
+          setError('Não foi possível enviar a foto. Verifique a conexão e tente novamente.');
+          return;
+        } finally {
+          setIsUploadingPhoto(false);
+        }
+      }
+
       const result = await addAttendance(normalizedValues);
       if (result.success) {
         setSuccess("Cadastro realizado com sucesso!");
         form.reset();
+        setPhotoSelection(null);
       } else {
+        if (uploadedPhoto) {
+          try {
+            await deleteAttendancePhoto(uploadedPhoto.storagePath);
+          } catch (cleanupError) {
+            console.warn('⚠️ Falha ao remover foto após erro de cadastro:', cleanupError);
+          }
+        }
         setError(result.error || "Não foi possível registrar sua presença. Tente novamente.");
       }
     } catch (err) {
+      if (uploadedPhoto) {
+        try {
+          await deleteAttendancePhoto(uploadedPhoto.storagePath);
+        } catch (cleanupError) {
+          console.warn('⚠️ Falha ao remover foto após erro inesperado:', cleanupError);
+        }
+      }
       setError("Ocorreu um problema ao se comunicar com o serviço. Tente novamente mais tarde.");
     } finally {
+      setIsUploadingPhoto(false);
       setIsSubmitting(false);
     }
   }
@@ -346,8 +393,17 @@ function AttendanceFormContent() {
                 ))}
               </div>
             </div>
+            <PhotoCaptureField
+              value={photoSelection?.preview ?? null}
+              onChange={setPhotoSelection}
+              disabled={isSubmitting || isUploadingPhoto}
+              description="Anexe ou capture a foto do membro. Este passo é opcional, mas ajuda a identificar o cadastro."
+            />
+            {isUploadingPhoto && (
+              <p className="text-xs text-muted-foreground">Enviando foto, aguarde...</p>
+            )}
             <div className="flex justify-end">
-                <Button type="submit" className="gap-2" disabled={isSubmitting}>
+                <Button type="submit" className="gap-2" disabled={isSubmitting || isUploadingPhoto}>
                   {isSubmitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />

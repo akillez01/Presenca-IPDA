@@ -1,25 +1,27 @@
 "use client";
 
+import { PhotoCaptureField } from "@/components/attendance/photo-capture-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
+    Form,
+    FormControl,
+    FormField,
+    FormItem,
+    FormLabel,
+    FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
 } from "@/components/ui/select";
 import { useSystemConfig } from "@/hooks/use-realtime";
 import { addAttendance } from "@/lib/actions";
+import { deleteAttendancePhoto, uploadAttendancePhoto } from "@/lib/attendance-photo";
 import { attendanceSchema, type AttendanceFormValues } from "@/lib/schemas";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, Send } from "lucide-react";
@@ -33,6 +35,12 @@ interface FieldInfo {
   placeholder: string;
   options?: string[];
 }
+
+type PhotoSelectionState = {
+  file?: File;
+  dataUrl?: string | null;
+  preview?: string | null;
+} | null;
 
 // Função para criar campos do formulário dinamicamente
 const createFormFields = (config: any): FieldInfo[] => [
@@ -101,6 +109,8 @@ const createFormFields = (config: any): FieldInfo[] => [
 
 function PublicAttendanceFormContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoSelection, setPhotoSelection] = useState<PhotoSelectionState>(null);
   const { config, loading } = useSystemConfig();
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -116,7 +126,7 @@ function PublicAttendanceFormContent() {
       region: undefined,
       churchPosition: undefined,
       shift: undefined,
-    // status: undefined,
+      status: 'Presente',
     },
   });
 
@@ -126,17 +136,58 @@ function PublicAttendanceFormContent() {
     setIsSubmitting(true);
     setSuccess(null);
     setError(null);
+    let uploadedPhoto: { downloadURL: string; storagePath: string } | null = null;
     try {
-      const result = await addAttendance(values);
+      const payload: AttendanceFormValues = {
+        ...values,
+        status: values.status || 'Presente',
+        photoUrl: undefined,
+      };
+
+      if (photoSelection?.file || photoSelection?.dataUrl) {
+        try {
+          setIsUploadingPhoto(true);
+          uploadedPhoto = await uploadAttendancePhoto({
+            cpf: values.cpf,
+            file: photoSelection.file,
+            dataUrl: photoSelection.dataUrl ?? undefined,
+          });
+          payload.photoUrl = uploadedPhoto.downloadURL;
+        } catch (photoError) {
+          console.error('❌ Erro ao enviar foto:', photoError);
+          setError('Não foi possível enviar a foto. Verifique a conexão e tente novamente.');
+          return;
+        } finally {
+          setIsUploadingPhoto(false);
+        }
+      }
+
+      const result = await addAttendance(payload);
       if (result.success) {
         setSuccess(`✅ Obrigado, ${values.fullName}! Sua presença foi registrada com sucesso. Deus abençoe!`);
         form.reset();
+        setPhotoSelection(null);
       } else {
+        if (uploadedPhoto) {
+          try {
+            await deleteAttendancePhoto(uploadedPhoto.storagePath);
+          } catch (cleanupError) {
+            console.warn('⚠️ Falha ao remover foto após erro de cadastro público:', cleanupError);
+          }
+        }
         setError(result.error || "❌ Não foi possível registrar sua presença. Tente novamente ou procure um responsável.");
       }
     } catch (error) {
+      if (uploadedPhoto) {
+        try {
+          await deleteAttendancePhoto(uploadedPhoto.storagePath);
+        } catch (cleanupError) {
+          console.warn('⚠️ Falha ao remover foto após erro inesperado no cadastro público:', cleanupError);
+        }
+      }
       setError("❌ Ocorreu um problema ao se comunicar com o serviço. Tente novamente mais tarde.");
     } finally {
+      setIsUploadingPhoto(false);
       setIsSubmitting(false);
     }
   }
@@ -212,8 +263,17 @@ function PublicAttendanceFormContent() {
                 />
               ))}
             </div>
+            <PhotoCaptureField
+              value={photoSelection?.preview ?? null}
+              onChange={setPhotoSelection}
+              disabled={isSubmitting || isUploadingPhoto}
+              description="Anexe ou capture a foto do membro. Etapa opcional, mas ajuda na identificação."
+            />
+            {isUploadingPhoto && (
+              <p className="text-xs text-muted-foreground">Enviando foto, aguarde...</p>
+            )}
             <div className="flex justify-end">
-                <Button type="submit" className="gap-2" disabled={isSubmitting}>
+                <Button type="submit" className="gap-2" disabled={isSubmitting || isUploadingPhoto}>
                   {isSubmitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
