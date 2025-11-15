@@ -26,8 +26,9 @@
     "url": "https://github.com/AchillesOS/sistema-presenca-ipda/issues"
   },
   "scripts": {
-    "dev": "next dev --turbopack -p 9002",
-    "dev:turbo": "next dev --turbopack -p 9002",
+  "dev": "next dev --turbopack -p 9002",
+  "dev:https": "next dev --hostname 0.0.0.0 --port 9002 --experimental-https --experimental-https-cert certs/local-cert.pem --experimental-https-key certs/local-key.pem",
+  "dev:turbo": "next dev --turbopack -p 9002",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
     "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
     "build": "next build",

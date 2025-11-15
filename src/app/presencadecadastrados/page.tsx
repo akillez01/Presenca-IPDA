@@ -42,6 +42,7 @@ export default function PresencaCadastradosPage() {
   const [editOriginalPhotoUrl, setEditOriginalPhotoUrl] = useState<string | null>(null);
   const [editPhotoMarkedForRemoval, setEditPhotoMarkedForRemoval] = useState(false);
   const [isUploadingEditPhoto, setIsUploadingEditPhoto] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
 
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
@@ -94,6 +95,10 @@ export default function PresencaCadastradosPage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   useEffect(() => {
     if (authLoading) {
@@ -823,7 +828,7 @@ Recarregue a página para ver o estado atualizado.`);
     }
   }
 
-  if (authLoading) {
+  if (!isMounted || authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />

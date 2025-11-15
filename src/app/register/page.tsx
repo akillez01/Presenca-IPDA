@@ -37,12 +37,10 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { useAuth } from '@/hooks/use-auth';
 import { useSystemConfig } from "@/hooks/use-realtime";
 import { useToast } from "@/hooks/use-toast";
 import { addAttendance } from "@/lib/actions";
 import { deleteAttendancePhoto, uploadAttendancePhoto } from "@/lib/attendance-photo";
-import { UserType } from "@/lib/auth";
 import { attendanceSchema, type AttendanceFormValues } from "@/lib/schemas";
 
 // Interface para configuração dos campos
@@ -128,6 +126,9 @@ const createFormFields = (config: any): FieldInfo[] => [
     options: config?.shiftOptions || ['Manhã', 'Tarde']
   },
 ] as const;
+
+const httpsRequirementMessage =
+  'Para usar a câmera neste ambiente hospedado, acesse a versão segura (HTTPS) do sistema. Sem HTTPS, os navegadores bloqueiam o uso da webcam.';
 
 function AttendanceFormContent() {
   const { toast } = useToast();
@@ -398,6 +399,7 @@ function AttendanceFormContent() {
               onChange={setPhotoSelection}
               disabled={isSubmitting || isUploadingPhoto}
               description="Anexe ou capture a foto do membro. Este passo é opcional, mas ajuda a identificar o cadastro."
+              insecureFallbackMessage={httpsRequirementMessage}
             />
             {isUploadingPhoto && (
               <p className="text-xs text-muted-foreground">Enviando foto, aguarde...</p>
@@ -425,51 +427,6 @@ function AttendanceFormContent() {
 }
 
 export default function AttendanceFormPage() {
-  const { user, loading } = useAuth();
-  const userPermissions = Array.isArray(user?.permissions) ? user?.permissions : [];
-  const userType = (user as any)?.userType as UserType | undefined;
-  
-  // Verificar se é usuário autorizado (tanto super usuários quanto usuários básicos podem registrar presença)
-  const isAuthorizedUser = !!user && (
-    userPermissions.includes('register') ||
-    userType === UserType.SUPER_USER ||
-    userType === UserType.EDITOR_USER ||
-    userType === UserType.BASIC_USER ||
-    user?.role === 'admin' ||
-    user?.role === 'editor' ||
-    user?.role === 'basic_user'
-  );
-
-  if (loading) {
-    return (
-      <main className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-          <p className="text-muted-foreground">Verificando permissões...</p>
-        </div>
-      </main>
-    );
-  }
-
-  if (!isAuthorizedUser) {
-    return (
-      <main className="min-h-screen flex items-center justify-center bg-background p-4">
-        <div className="text-center max-w-md">
-          <h1 className="text-xl sm:text-2xl font-bold mb-2">Acesso restrito</h1>
-          <p className="text-muted-foreground text-sm sm:text-base">
-            Apenas usuários autorizados podem registrar presença.
-            <br className="hidden sm:block" />
-            <span className="sm:hidden"> </span>
-            Se você tem uma conta de usuário básico e ainda não consegue acessar,
-            <br className="hidden sm:block" />
-            <span className="sm:hidden"> </span>
-            contacte um administrador para verificar suas permissões.
-          </p>
-        </div>
-      </main>
-    );
-  }
-
   return (
     <main className="min-h-screen flex items-center justify-center bg-background p-2 sm:p-4">
       <div className="w-full max-w-2xl mx-auto flex flex-col items-center gap-4 sm:gap-8">

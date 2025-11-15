@@ -4,20 +4,24 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
+const DEBUG = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_DEBUG === 'true';
+
 interface AuthGuardProps {
   children: React.ReactNode;
 }
 
-const LoadingScreen = ({ message }: { message: string }) => (
-  <div className="min-h-screen flex items-center justify-center">
-    <div className="text-center">
-      <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] mx-auto mb-4 text-primary" role="status">
-        <span className="sr-only">Carregando...</span>
+const LoadingScreen = ({ message }: { message: string }) => {
+  return (
+    <div className="min-h-screen flex items-center justify-center" suppressHydrationWarning>
+      <div className="text-center" suppressHydrationWarning>
+        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] mx-auto mb-4 text-primary" role="status">
+          <span className="sr-only">Carregando...</span>
+        </div>
+        <p className="text-muted-foreground" suppressHydrationWarning>{message}</p>
       </div>
-      <p className="text-muted-foreground">{message}</p>
     </div>
-  </div>
-);
+  );
+};
 
 export function AuthGuard({ children }: AuthGuardProps) {
   const { user, loading } = useAuth();
@@ -37,26 +41,11 @@ export function AuthGuard({ children }: AuthGuardProps) {
     }
   }, [mounted, loading, user, pathname, router]);
 
-  // Durante a hidratação, sempre mostrar loading para evitar diferenças servidor/cliente
-  if (!mounted) {
-    return <LoadingScreen message="Inicializando..." />;
+  // Consolidar renderização em um único bloco para minimizar diferença de árvore para hidratação
+  const shouldShowLoading = !mounted || loading || (!user && pathname !== '/login' && pathname !== '/login/');
+  if (DEBUG) {
+    // Log leve para estados
+    console.log('🔒 AuthGuard State:', { mounted, loading, hasUser: !!user, pathname, shouldShowLoading });
   }
-
-  // Durante o loading de autenticação
-  if (loading) {
-    return <LoadingScreen message="Verificando autenticação..." />;
-  }
-
-  // Se temos um usuário autenticado, permitir acesso
-  if (user) {
-    return <>{children}</>;
-  }
-
-  // Se não há usuário e não estamos na página de login, mostrar loading enquanto redireciona
-  if (!user && pathname !== '/login' && pathname !== '/login/') {
-    return <LoadingScreen message="Redirecionando para login..." />;
-  }
-
-  // Se estiver na página de login e não tem usuário, permitir acesso
-  return <>{children}</>;
+  return shouldShowLoading ? <LoadingScreen message={!mounted ? 'Inicializando...' : loading ? 'Verificando autenticação...' : 'Redirecionando para login...'} /> : <>{children}</>;
 }

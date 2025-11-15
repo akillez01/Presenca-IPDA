@@ -3,7 +3,9 @@
 import { useAuth } from '@/hooks/use-auth';
 import { getUserType, UserType } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+
+const DEBUG = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_DEBUG === 'true';
 
 interface RoutePermission {
   path: string;
@@ -79,6 +81,11 @@ interface RouteGuardProps {
 export function RouteGuard({ children, currentPath }: RouteGuardProps) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!loading && user) {
@@ -87,25 +94,29 @@ export function RouteGuard({ children, currentPath }: RouteGuardProps) {
       const userRole = (user as any).role || 'basic_user';
       const userPermissions = Array.isArray((user as any).permissions) ? (user as any).permissions : [];
       
-      console.log('🔐 RouteGuard Debug:', {
-        currentPath,
-        userEmail: user.email,
-        userType,
-        userRole,
-        userPermissions,
-        loading
-      });
+      if (DEBUG) {
+        console.log('🔐 RouteGuard Debug:', {
+          currentPath,
+          userEmail: user.email,
+          userType,
+          userRole,
+          userPermissions,
+          loading
+        });
+      }
       
       // Encontrar permissão para a rota atual
       const routePermission = ROUTE_PERMISSIONS.find(
         permission => permission.path === currentPath
       );
 
-      console.log('🔍 Route Permission:', routePermission);
+      if (DEBUG) {
+        console.log('🔍 Route Permission:', routePermission);
+      }
 
       // Se não há configuração específica, permitir acesso
       if (!routePermission) {
-        console.log('✅ Permitindo acesso - nenhuma configuração específica');
+        if (DEBUG) console.log('✅ Permitindo acesso - nenhuma configuração específica');
         return;
       }
 
@@ -116,37 +127,36 @@ export function RouteGuard({ children, currentPath }: RouteGuardProps) {
         routePermission.allowedPermissions.some(permission => userPermissions.includes(permission)) : false;
 
       if (!hasUserTypePermission && !hasRolePermission && !hasPermissionClaim) {
-        console.log('❌ Acesso negado - nem tipo de usuário nem role permitidos');
+        if (DEBUG) console.log('❌ Acesso negado - nem tipo de usuário nem role permitidos');
         
         // Evitar loop infinito ao redirecionar para a página inicial
         if (currentPath === '/') {
-          console.log('🔄 Já está na página inicial, não redirecionando');
+          if (DEBUG) console.log('🔄 Já está na página inicial, não redirecionando');
           return;
         }
         
         const redirectPath = routePermission.redirectPath || '/';
-        console.log('🔄 Redirecionando para:', redirectPath);
+        if (DEBUG) console.log('🔄 Redirecionando para:', redirectPath);
         router.push(redirectPath);
         return;
       } else {
-        console.log('✅ Acesso permitido', { hasUserTypePermission, hasRolePermission, hasPermissionClaim });
+        if (DEBUG) console.log('✅ Acesso permitido', { hasUserTypePermission, hasRolePermission, hasPermissionClaim });
       }
     }
   }, [user, loading, currentPath, router]);
 
-  // Ainda carregando
-  if (loading) {
+  // Unificar saída inicial até montagem para reduzir alterações na árvore
+  const showLoading = !mounted || loading;
+  if (showLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      <div className="flex items-center justify-center min-h-screen" suppressHydrationWarning>
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-current border-r-transparent" />
       </div>
     );
   }
 
-  // Não autenticado - deixar o AuthGuard lidar com isso
-  if (!user) {
-    return <>{children}</>;
-  }
+  // Não autenticado - AuthGuard controla
+  if (!user) return <>{children}</>;
 
   const userClaimsType = (user as any).userType as UserType | undefined;
   const userType = userClaimsType || getUserType(user.email || '');
@@ -158,16 +168,18 @@ export function RouteGuard({ children, currentPath }: RouteGuardProps) {
     permission => permission.path === currentPath
   );
 
-  console.log('🔐 RouteGuard Render Check:', {
-    currentPath,
-    userEmail: user.email,
-    userType,
-    userRole,
-    routePermission,
-    hasUserTypePermission: routePermission ? routePermission.allowedUserTypes.includes(userType) : true,
-    hasRolePermission: routePermission ? routePermission.allowedRoles?.includes(userRole) : true,
-    hasPermissionClaim: routePermission?.allowedPermissions ? routePermission.allowedPermissions.some(permission => userPermissions.includes(permission)) : true
-  });
+  if (DEBUG) {
+    console.log('🔐 RouteGuard Render Check:', {
+      currentPath,
+      userEmail: user.email,
+      userType,
+      userRole,
+      routePermission,
+      hasUserTypePermission: routePermission ? routePermission.allowedUserTypes.includes(userType) : true,
+      hasRolePermission: routePermission ? routePermission.allowedRoles?.includes(userRole) : true,
+      hasPermissionClaim: routePermission?.allowedPermissions ? routePermission.allowedPermissions.some(permission => userPermissions.includes(permission)) : true
+    });
+  }
 
   // Se não há configuração específica, permitir acesso
   if (!routePermission) {
@@ -180,12 +192,12 @@ export function RouteGuard({ children, currentPath }: RouteGuardProps) {
   const hasPermissionClaim = routePermission.allowedPermissions ? routePermission.allowedPermissions.some(permission => userPermissions.includes(permission)) : false;
 
   if (!hasUserTypePermission && !hasRolePermission && !hasPermissionClaim) {
-    console.log('❌ Renderizando Acesso Negado');
+  if (DEBUG) console.log('❌ Renderizando Acesso Negado');
     
     // Se estiver na página inicial e não tiver permissão, isso é um problema de configuração
     // Vamos permitir o acesso para evitar loop infinito
     if (currentPath === '/') {
-      console.log('🚨 PROBLEMA: Usuário não tem permissão para página inicial, permitindo acesso para evitar loop');
+      if (DEBUG) console.log('🚨 PROBLEMA: Usuário não tem permissão para página inicial, permitindo acesso para evitar loop');
       return <>{children}</>;
     }
     

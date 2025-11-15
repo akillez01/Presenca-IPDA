@@ -44,14 +44,18 @@ const firebaseConfig = {
   }),
 };
 
-console.log('🔥 Firebase Config Debug:', {
-  isMobile: isMobile(),
-  hasEnvVars: !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  config: {
-    ...firebaseConfig,
-    apiKey: firebaseConfig.apiKey ? `${firebaseConfig.apiKey.substring(0, 8)}...` : 'undefined'
-  }
-});
+if (process.env.NEXT_PUBLIC_DEBUG === 'true') {
+  // Log apenas em modo debug explícito para evitar poluir console e afetar hidratação
+  // eslint-disable-next-line no-console
+  console.log('🔥 Firebase Config Debug:', {
+    isMobile: isMobile(),
+    hasEnvVars: !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+    config: {
+      ...firebaseConfig,
+      apiKey: firebaseConfig.apiKey ? `${firebaseConfig.apiKey.substring(0, 8)}...` : 'undefined'
+    }
+  });
+}
 
 // Função para validar se o domínio é válido para Analytics (utilitário)
 export function isValidDomainForAnalytics(): boolean {

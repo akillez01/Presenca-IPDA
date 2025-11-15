@@ -17,6 +17,7 @@ interface PhotoCaptureFieldProps {
   onChange: (selection: PhotoSelection | null) => void;
   value?: string | null;
   disabled?: boolean;
+  insecureFallbackMessage?: string;
 }
 
 export function PhotoCaptureField({
@@ -25,6 +26,7 @@ export function PhotoCaptureField({
   onChange,
   value,
   disabled = false,
+  insecureFallbackMessage,
 }: PhotoCaptureFieldProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -32,13 +34,20 @@ export function PhotoCaptureField({
   const [preview, setPreview] = useState<string | null>(value ?? null);
   const [error, setError] = useState<string | null>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [hasCameraSupport, setHasCameraSupport] = useState(() => {
-    if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+  const [cameraApiAvailable, setCameraApiAvailable] = useState(() => {
+    if (typeof navigator === 'undefined') {
       return false;
     }
-    return Boolean(navigator.mediaDevices?.getUserMedia);
+    return typeof navigator.mediaDevices?.getUserMedia === 'function';
+  });
+  const [isSecureContext, setIsSecureContext] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    return window.isSecureContext;
   });
   const cameraUnsupportedMessage = 'Este navegador não oferece suporte à captura por câmera. Utilize o upload de imagem.';
+  const insecureContextMessage = insecureFallbackMessage || 'Para usar a câmera, acesse o sistema via HTTPS ou localhost. Navegadores bloqueiam o uso de câmera em conexões HTTP inseguros.';
 
   useEffect(() => {
     setPreview(value ?? null);
@@ -46,11 +55,16 @@ export function PhotoCaptureField({
 
   useEffect(() => {
     if (typeof navigator === 'undefined') {
-      setHasCameraSupport(false);
+      setCameraApiAvailable(false);
       return;
     }
-    const supported = Boolean(navigator.mediaDevices?.getUserMedia);
-    setHasCameraSupport(supported);
+    const secure = typeof window !== 'undefined' && window.isSecureContext;
+    setIsSecureContext(secure);
+    const apiIsAvailable = typeof navigator.mediaDevices?.getUserMedia === 'function';
+    setCameraApiAvailable(apiIsAvailable);
+    if (!secure && apiIsAvailable) {
+      setError(insecureContextMessage);
+    }
   }, []);
 
   useEffect(() => {
@@ -62,33 +76,105 @@ export function PhotoCaptureField({
 
   const stopCamera = () => {
     stream?.getTracks().forEach((track) => track.stop());
+    if (videoRef.current) {
+      const videoElement = videoRef.current;
+      videoElement.pause();
+      videoElement.srcObject = null;
+    }
     setStream(null);
     setIsCameraActive(false);
   };
 
   const startCamera = async () => {
     if (disabled) return;
-    if (
-      !hasCameraSupport ||
-      typeof navigator === 'undefined' ||
-      !navigator.mediaDevices?.getUserMedia
-    ) {
+    if (!cameraApiAvailable || typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
       setError(cameraUnsupportedMessage);
       return;
     }
+    if (!isSecureContext) {
+      setError(insecureContextMessage);
+      return;
+    }
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      // Garante que qualquer stream anterior seja finalizado antes de solicitar um novo
+      stopCamera();
+
+      let mediaStream: MediaStream | null = null;
+
+      // Tenta usar a câmera traseira quando disponível
+      const constraints: MediaStreamConstraints = { video: { facingMode: 'environment' } };
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (primaryError) {
+        console.warn('Câmera traseira indisponível, tentando configurações alternativas...', primaryError);
+      }
+
+      const fallbackConstraints: MediaStreamConstraints[] = [
+        { video: true },
+        { video: { facingMode: 'user' } },
+      ];
+
+      if (!mediaStream || !mediaStream.getVideoTracks().length) {
+        for (const fallback of fallbackConstraints) {
+          try {
+            mediaStream = await navigator.mediaDevices.getUserMedia(fallback);
+            if (mediaStream.getVideoTracks().length) {
+              break;
+            }
+          } catch (fallbackError) {
+            console.warn('Fallback de câmera falhou:', fallbackError);
+          }
+        }
+      }
+
+      if (!mediaStream || !mediaStream.getVideoTracks().length) {
+        throw new Error('Não foi possível inicializar nenhuma câmera.');
+      }
+
       setStream(mediaStream);
       setIsCameraActive(true);
       setError(null);
 
       if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        await videoRef.current.play();
+        const videoElement = videoRef.current;
+        videoElement.srcObject = mediaStream;
+        videoElement.muted = true;
+        videoElement.setAttribute('playsinline', 'true');
+        videoElement.style.visibility = 'visible';
+        videoElement.style.opacity = '1';
+
+        const playStream = async () => {
+          try {
+            await videoElement.play();
+          } catch (playError) {
+            console.warn('Preview da câmera não iniciou automaticamente, tentando novamente...', playError);
+            setTimeout(() => {
+              void videoElement.play().catch(() => {
+                setError('Não foi possível iniciar a visualização da câmera. Verifique permissões do navegador.');
+              });
+            }, 250);
+          }
+        };
+
+        const handleCanPlay = () => {
+          void playStream();
+          videoElement.removeEventListener('loadeddata', handleCanPlay);
+          videoElement.removeEventListener('canplay', handleCanPlay);
+        };
+
+        if (videoElement.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) {
+          void playStream();
+        } else {
+          videoElement.addEventListener('loadeddata', handleCanPlay);
+          videoElement.addEventListener('canplay', handleCanPlay);
+        }
       }
     } catch (err) {
       console.error('Erro ao acessar câmera:', err);
-      setError('Não foi possível acessar a câmera. Verifique as permissões.');
+      const message = err instanceof DOMException && err.name === 'NotAllowedError'
+        ? 'Permissão de câmera negada. Verifique as configurações do navegador e tente novamente.'
+        : 'Não foi possível acessar a câmera. Verifique as permissões ou se outro aplicativo está utilizando a câmera.';
+      setError(message);
       stopCamera();
     }
   };
@@ -217,7 +303,7 @@ export function PhotoCaptureField({
               variant="secondary"
               size="sm"
               onClick={startCamera}
-              disabled={disabled || !hasCameraSupport}
+              disabled={disabled || !cameraApiAvailable}
             >
               Usar câmera
             </Button>
@@ -236,10 +322,14 @@ export function PhotoCaptureField({
           )}
         </div>
 
-        {!hasCameraSupport && (
+        {!cameraApiAvailable && (
           <p className="text-xs text-muted-foreground">
             Captura por câmera indisponível neste dispositivo. Faça o upload manual da foto.
           </p>
+        )}
+
+        {cameraApiAvailable && !isSecureContext && (
+          <p className="text-xs text-muted-foreground">{insecureContextMessage}</p>
         )}
       </div>
     </div>

@@ -80,10 +80,15 @@ export function useAuth() {
       
       try {
         if (firebaseUser) {
-          console.log('🔄 Processando usuário Firebase:', firebaseUser.email);
+          const DEBUG = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_DEBUG === 'true';
+          if (DEBUG) console.log('🔄 Processando usuário Firebase:', firebaseUser.email);
 
           const tokenResult = await firebaseUser.getIdTokenResult();
           const claims = tokenResult.claims || {};
+          // Declarar antecipadamente para uso em todos os blocos (incluindo fallback do catch)
+          const claimUserType = typeof claims.userType === 'string' ? claims.userType : undefined;
+          const claimRole = typeof claims.role === 'string' ? claims.role : undefined;
+          const claimPermissions = claims.permissions;
           
           try {
             // Aguardar um pouco para garantir que a autenticação está completa
@@ -91,18 +96,15 @@ export function useAuth() {
             
             // Carregar perfil do usuário do Firestore para obter o role
             const userDocRef = doc(db, 'users', firebaseUser.uid);
-            console.log(`🔍 Tentando acessar documento: users/${firebaseUser.uid}`);
+            if (DEBUG) console.log(`🔍 Tentando acessar documento: users/${firebaseUser.uid}`);
             
             const userDocSnap = await getDoc(userDocRef);
 
             let extendedUser: ExtendedUser;
-            const claimUserType = typeof claims.userType === 'string' ? claims.userType : undefined;
-            const claimRole = typeof claims.role === 'string' ? claims.role : undefined;
-            const claimPermissions = claims.permissions;
 
             if (userDocSnap.exists()) {
               const userData = userDocSnap.data();
-              console.log(`📄 Dados do usuário no Firestore:`, userData);
+              if (DEBUG) console.log(`📄 Dados do usuário no Firestore:`, userData);
 
               const docRole = typeof userData.role === 'string' ? userData.role : undefined;
               const docUserType = typeof userData.userType === 'string' ? userData.userType : undefined;
@@ -113,7 +115,7 @@ export function useAuth() {
               const resolvedPermissions = resolvePermissions(resolvedUserType, docPermissions || claimPermissions);
 
               if (claimUserType && docUserType && claimUserType !== docUserType) {
-                console.log(`⚠️ Inconsistência de tipo: claims=${claimUserType} Firestore=${docUserType}. Preferindo Firestore.`);
+                if (DEBUG) console.log(`⚠️ Inconsistência de tipo: claims=${claimUserType} Firestore=${docUserType}. Preferindo Firestore.`);
               }
 
               extendedUser = {
@@ -123,9 +125,9 @@ export function useAuth() {
                 userType: resolvedUserType,
                 permissions: resolvedPermissions
               } as ExtendedUser;
-              console.log(`✅ Usuário com perfil Firestore:`, extendedUser.email, `role: ${resolvedRole}`, `userType: ${resolvedUserType}`);
+              if (DEBUG) console.log(`✅ Usuário com perfil Firestore:`, extendedUser.email, `role: ${resolvedRole}`, `userType: ${resolvedUserType}`);
             } else {
-              console.log(`⚠️ Documento não encontrado para: ${firebaseUser.uid}`);
+              if (DEBUG) console.log(`⚠️ Documento não encontrado para: ${firebaseUser.uid}`);
               const fallbackUserType = claimUserType || getUserType(firebaseUser.email || '');
               const fallbackRole = claimRole || mapUserTypeToRole(fallbackUserType);
               const fallbackPermissions = resolvePermissions(fallbackUserType, claimPermissions);
@@ -137,7 +139,7 @@ export function useAuth() {
                 userType: fallbackUserType,
                 permissions: fallbackPermissions
               } as ExtendedUser;
-              console.log(`✅ Usuário sem perfil Firestore (padrão):`, extendedUser.email, fallbackRole);
+              if (DEBUG) console.log(`✅ Usuário sem perfil Firestore (padrão):`, extendedUser.email, fallbackRole);
             }
             
             if (mounted) {
@@ -160,14 +162,15 @@ export function useAuth() {
               permissions: fallbackPermissions
             } as ExtendedUser;
             
-            console.log(`🔄 Fallback aplicado para ${firebaseUser.email}: role=${fallbackRole}, userType=${fallbackUserType}`);
+            if (DEBUG) console.log(`🔄 Fallback aplicado para ${firebaseUser.email}: role=${fallbackRole}, userType=${fallbackUserType}`);
             
             if (mounted) {
               setUser(extendedUser);
             }
           }
         } else {
-          console.log('🔓 Nenhum usuário Firebase autenticado');
+          const DEBUG = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_DEBUG === 'true';
+          if (DEBUG) console.log('🔓 Nenhum usuário Firebase autenticado');
           if (mounted) {
             setUser(null);
           }
