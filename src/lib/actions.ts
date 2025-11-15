@@ -1,4 +1,17 @@
-import { updateAttendanceStatus as updateAttendanceStatusBase } from "./presenca-mysql";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { db } from "./firebase";
+import {
+    addPresenca,
+    deleteAttendanceRecord,
+    getAllPresencas,
+    getPresencaByCpf,
+    getPresencas,
+    getPresencasByDateRange,
+    getPresencaStats,
+    updateAttendanceRecord as updateAttendanceRecordFirebase,
+    updateAttendanceStatus as updateAttendanceStatusBase,
+} from "./presenca-mysql";
+import type { AttendanceFormValues } from "./schemas";
 
 export async function updateAttendanceStatus(id: string, status: string, absentReason?: string, timestamp?: Date) {
   return updateAttendanceStatusBase(id, status, absentReason, timestamp);
@@ -7,8 +20,17 @@ export async function updateAttendanceStatus(id: string, status: string, absentR
 export async function updateAttendanceRecord(id: string, data: any) {
   return updateAttendanceRecordFirebase(id, data);
 }
+
+export async function getAttendanceByCpf(cpf: string) {
+  const cleanCpf = (cpf || "").replace(/\D/g, "");
+  if (!cleanCpf) {
+    return null;
+  }
+  return getPresencaByCpf(cleanCpf);
+}
+
 // Exportação explícita para uso no client
-    export { getAllPresencas };
+export { getAllPresencas };
 // Firebase: relatório de presença (exemplo básico)
 export async function getAttendanceReportData(start?: Date, end?: Date) {
   if (start && end) {
@@ -91,19 +113,6 @@ export async function getWeeklyAttendanceStats() {
 export async function getAttendanceByDateRange(start: Date, end: Date) {
   return await getPresencasByDateRange(start, end);
 }
-
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { db } from "./firebase";
-import {
-    addPresenca,
-    deleteAttendanceRecord,
-    getAllPresencas,
-    getPresencas,
-    getPresencasByDateRange,
-    getPresencaStats,
-    updateAttendanceRecord as updateAttendanceRecordFirebase
-} from "./presenca-mysql";
-import type { AttendanceFormValues } from "./schemas";
 
 export async function addAttendance(data: AttendanceFormValues) {
   try {

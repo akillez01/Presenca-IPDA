@@ -6,11 +6,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getAttendanceRecords, updateAttendanceStatus } from "@/lib/actions";
+import { getAllPresencas, getAttendanceByCpf, updateAttendanceStatus } from "@/lib/actions";
 import type { AttendanceRecord } from "@/lib/types";
 import { BrowserMultiFormatReader } from "@zxing/library";
-import { AlertCircle, Camera, CheckCircle, Clock, QrCode, UserCheck, Users, Zap } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { AlertCircle, Camera, CheckCircle, Clock, QrCode, Search, UserCheck, Users, Zap } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export default function QRScannerPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -23,16 +23,76 @@ export default function QRScannerPage() {
   const [justificativa, setJustificativa] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [recentScans, setRecentScans] = useState<{cpf: string, nome: string, horario: string, status: string}[]>([]);
+  const [recentLoading, setRecentLoading] = useState(false);
+  const [recentLoaded, setRecentLoaded] = useState(false);
+  const [recentError, setRecentError] = useState<string | null>(null);
 
   // Para entrada manual de CPF
   const [manualCpf, setManualCpf] = useState("");
   
   // Reader do ZXing
   const codeReader = useRef<BrowserMultiFormatReader | null>(null);
+  const userStoppedRef = useRef(false);
+  const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadRecentScans = useCallback(async () => {
+    try {
+      setRecentLoading(true);
+      setRecentError(null);
+      const records = await getAllPresencas();
+
+      const sorted = [...records]
+        .sort((a, b) => {
+          const getTime = (record: any) => {
+            const source = record.timestamp ?? record.createdAt ?? null;
+            if (source instanceof Date) {
+              return source.getTime();
+            }
+            if (typeof source === "number") {
+              return source;
+            }
+            if (typeof source === "string") {
+              const parsed = new Date(source).getTime();
+              return isNaN(parsed) ? 0 : parsed;
+            }
+            return 0;
+          };
+          return getTime(b) - getTime(a);
+        })
+        .slice(0, 10)
+        .map((record) => {
+          const source = record.timestamp ?? record.createdAt ?? null;
+          let horario = "";
+          if (source instanceof Date) {
+            horario = source.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+          } else if (source) {
+            const parsed = new Date(source);
+            if (!isNaN(parsed.getTime())) {
+              horario = parsed.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+            }
+          }
+          return {
+            cpf: record.cpf,
+            nome: record.fullName,
+            horario: horario || "--:--",
+            status: record.status ?? "Presente"
+          };
+        });
+
+      setRecentScans(sorted);
+    } catch (err) {
+      console.error("Erro ao carregar registros recentes:", err);
+      setRecentError("Não foi possível carregar os registros recentes.");
+    } finally {
+      setRecentLoading(false);
+      setRecentLoaded(true);
+    }
+  }, []);
 
   const startCamera = async () => {
     try {
       setError("");
+      userStoppedRef.current = false;
       
       // Inicializa o reader do ZXing
       if (!codeReader.current) {
@@ -75,78 +135,134 @@ export default function QRScannerPage() {
     }
   };
 
-  const stopCamera = () => {
+  const stopCamera = (isAutomatic = false) => {
     if (codeReader.current) {
       codeReader.current.reset();
+    }
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
+    }
+    if (!isAutomatic) {
+      userStoppedRef.current = true;
     }
     setIsScanning(false);
   };
 
   const processQRCode = async (qrData: string) => {
+    if (loading) {
+      return;
+    }
+
     try {
-      setLoading(true);
       setError("");
       setSuccessMessage("");
-      
-      // Parse do QR Code - formato: IPDA-PRESENCA:CPF
+
       if (!qrData.startsWith('IPDA-PRESENCA:')) {
         setError('QR Code inválido. Use apenas QR Codes gerados pelo sistema IPDA.');
         return;
       }
 
       const cpf = qrData.replace('IPDA-PRESENCA:', '').trim();
-      await processCPF(cpf);
-      
+      setResult(qrData);
+      await registerPresenceByScan(cpf);
     } catch (err) {
       console.error('Erro ao processar QR Code:', err);
       setError('Erro ao processar QR Code.');
-    } finally {
-      setLoading(false);
     }
   };
 
-  const processCPF = async (cpf: string) => {
+  const registerPresenceByScan = async (cpf: string) => {
+    const cleanCpf = (cpf || '').replace(/\D/g, '');
+    if (cleanCpf.length !== 11) {
+      setError('CPF inválido no QR Code.');
+      return;
+    }
+
+    stopCamera(true);
+
     try {
       setLoading(true);
       setError("");
       setSuccessMessage("");
-      
-      // Busca a pessoa pelo CPF
-      const allRecords = await getAttendanceRecords();
-      const person = allRecords.find(r => r.cpf === cpf);
-      
+
+      const person = await getAttendanceByCpf(cleanCpf);
+
       if (!person) {
-        setError(`Pessoa com CPF ${cpf} não encontrada no sistema.`);
+        setError(`Pessoa com CPF ${cleanCpf} não encontrada no sistema.`);
         return;
       }
 
-      // Registra automaticamente como "Presente" quando QR Code é escaneado
       await updateAttendanceStatus(person.id, "Presente");
-      
-      // Adiciona aos escaneamentos recentes
+
       const novoScan = {
         cpf: person.cpf,
         nome: person.fullName,
         horario: new Date().toLocaleTimeString('pt-BR'),
         status: "Presente"
       };
-      
-      setRecentScans(prev => [novoScan, ...prev.slice(0, 9)]); // Mantém apenas os 10 mais recentes
-      
+
+      setRecentScans(prev => [novoScan, ...prev.slice(0, 9)]);
+      setRecentError(null);
       setSuccessMessage(`✅ Presença registrada automaticamente para ${person.fullName}!`);
       setResult("");
-      
-      // Limpa a mensagem após 3 segundos e volta a escanear
-      setTimeout(() => {
-        setSuccessMessage("");
-        if (!isScanning) {
-          startCamera(); // Reinicia o scanner automaticamente
-        }
-      }, 3000);
-      
+      setFoundRecord(null);
+      setManualCpf("");
+      setJustificativa("");
+      setStatus("Presente");
     } catch (err) {
-      console.error('Erro ao buscar pessoa:', err);
+      console.error('Erro ao registrar presença automaticamente:', err);
       setError('Erro ao registrar presença.');
+    } finally {
+      setLoading(false);
+      if (restartTimeoutRef.current) {
+        clearTimeout(restartTimeoutRef.current);
+      }
+      restartTimeoutRef.current = setTimeout(() => {
+        setSuccessMessage("");
+        restartTimeoutRef.current = null;
+        if (!userStoppedRef.current) {
+          void startCamera();
+        }
+      }, 1500);
+    }
+  };
+
+  const lookupAttendanceByCpf = async (cpf: string) => {
+    const cleanCpf = (cpf || '').replace(/\D/g, '');
+
+    if (cleanCpf.length !== 11) {
+      setFoundRecord(null);
+      setError('Digite um CPF válido com 11 dígitos.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+      setSuccessMessage("");
+
+      const record = await getAttendanceByCpf(cleanCpf);
+
+      if (!record) {
+        setFoundRecord(null);
+        setError(`Pessoa com CPF ${cleanCpf} não encontrada no sistema.`);
+        return;
+      }
+
+      const normalizedStatus = record.status === 'Justificado'
+        ? 'Justificado'
+        : record.status === 'Ausente'
+          ? 'Ausente'
+          : 'Presente';
+
+      setFoundRecord(record);
+      setManualCpf(cleanCpf);
+      setStatus(normalizedStatus);
+      setJustificativa(normalizedStatus !== 'Presente' ? (record.absentReason ?? '') : '');
+    } catch (err) {
+      console.error('Erro ao buscar CPF:', err);
+      setError('Erro ao buscar CPF informado.');
     } finally {
       setLoading(false);
     }
@@ -175,6 +291,7 @@ export default function QRScannerPage() {
       };
       
       setRecentScans(prev => [novoScan, ...prev.slice(0, 9)]);
+  setRecentError(null);
       
       setSuccessMessage(`✅ Presença registrada com sucesso para ${foundRecord.fullName}!`);
       setFoundRecord(null);
@@ -194,6 +311,16 @@ export default function QRScannerPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (manualCpf.length !== 11) {
+      setFoundRecord(null);
+    }
+  }, [manualCpf]);
+
+  useEffect(() => {
+    void loadRecentScans();
+  }, [loadRecentScans]);
 
   useEffect(() => {
     return () => {
@@ -344,19 +471,19 @@ export default function QRScannerPage() {
 
                   {/* Botão buscar */}
                   <Button 
-                    onClick={() => processCPF(manualCpf)} 
+                    onClick={() => lookupAttendanceByCpf(manualCpf)} 
                     disabled={loading || manualCpf.length !== 11}
                     className="w-full"
                   >
                     {loading ? (
                       <>
                         <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2" />
-                        Registrando...
+                        Buscando...
                       </>
                     ) : (
                       <>
-                        <QrCode className="h-4 w-4 mr-2" />
-                        Registrar por CPF
+                        <Search className="h-4 w-4 mr-2" />
+                        Buscar CPF
                       </>
                     )}
                   </Button>
@@ -439,7 +566,18 @@ export default function QRScannerPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {recentScans.length === 0 ? (
+                  {recentLoading && !recentLoaded ? (
+                    <div className="text-center text-gray-500 py-4 space-y-2">
+                      <div className="flex justify-center">
+                        <div className="h-6 w-6 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
+                      </div>
+                      <p className="text-sm">Carregando registros recentes...</p>
+                    </div>
+                  ) : recentError ? (
+                    <div className="text-center text-red-600 py-4 text-sm">
+                      {recentError}
+                    </div>
+                  ) : recentScans.length === 0 ? (
                     <div className="text-center text-gray-500 py-4">
                       <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
                       <p className="text-sm">Nenhum registro ainda</p>
@@ -500,8 +638,8 @@ export default function QRScannerPage() {
                   <h4 className="font-semibold mb-2">⌨️ Entrada Manual:</h4>
                   <ul className="space-y-1 text-gray-600">
                     <li>• Use se QR Code não funcionar</li>
-                    <li>• Digite o CPF do membro</li>
-                    <li>• Escolha status (Presente/Justificado/Ausente)</li>
+                    <li>• Digite o CPF do membro e clique em "Buscar CPF"</li>
+                    <li>• Confirme os dados e escolha status</li>
                     <li>• Clique em "Registrar Presença"</li>
                   </ul>
                 </div>
