@@ -1,9 +1,6 @@
 'use client';
 
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRealtimeAttendance } from '@/hooks/use-realtime';
-import { Users2 } from 'lucide-react';
 
 export function AttendanceAnalytics() {
   const { attendanceRecords, stats, loading, error } = useRealtimeAttendance();
@@ -67,8 +64,8 @@ export function AttendanceAnalytics() {
     .slice(0, 5);
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-      {/* Últimos 7 Dias - Tabela (apenas em análise detalhada) */}
-      <Card className="md:col-span-2">
+      {/* Últimos 7 Dias - Tabela (apenas em análise detalhada) - TEMPORARIAMENTE COMENTADO */}
+      {/* <Card className="md:col-span-2">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users2 className="h-4 w-4" />
@@ -110,7 +107,7 @@ export function AttendanceAnalytics() {
             ))}
           </div>
         </CardContent>
-      </Card>
+      </Card> */}
       {/* ...restante dos cards do dashboard... */}
     </div>
   );

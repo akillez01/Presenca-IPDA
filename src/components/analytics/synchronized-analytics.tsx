@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAnalyticsSync } from '@/hooks/use-analytics-sync';
 import { AlertCircle, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { AttendanceAnalytics } from './attendance-analytics';
-import { HistoricalData } from './historical-data';
 
 export function SynchronizedAnalytics() {
   const {
@@ -144,17 +143,18 @@ export function SynchronizedAnalytics() {
       {hasData && hasRecordsToday ? (
         <>
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            {/* Cabeçalho "Análise Detalhada" e Badge "Dados em Tempo Real" - TEMPORARIAMENTE COMENTADO */}
+            {/* <div className="flex items-center justify-between">
               <h2 className="text-2xl font-bold">Análise Detalhada</h2>
               <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
                 Dados em Tempo Real
               </Badge>
-            </div>
+            </div> */}
             <AttendanceAnalytics />
           </div>
 
-          {/* Dados Históricos */}
-          {hasHistoricalData && <HistoricalData />}
+          {/* Dados Históricos - TEMPORARIAMENTE COMENTADO */}
+          {/* {hasHistoricalData && <HistoricalData />} */}
         </>
       ) : (
         /* Estado sem dados */

@@ -139,7 +139,7 @@ export function agruparPresencasPorDia(presencas: Presenca[]): Array<{
     return { data, total, presentes, justificados, ausentes, porcentagem };
   });
 }
-import { collection, deleteDoc, doc, getDocs, query, Timestamp, updateDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, query, Timestamp, updateDoc, where } from "firebase/firestore";
 import { db } from "./firebase";
 
 // Função utilitária para processar timestamps do Firestore
@@ -268,11 +268,21 @@ export async function addPresenca(data: Omit<Presenca, 'id' | 'timestamp' | 'cre
   const { addDoc } = await import("firebase/firestore");
   // Garante que o campo timestamp seja preenchido corretamente
   const now = new Date();
-  const docRef = await addDoc(collection(db, "attendance"), {
+  
+  const documentData = {
     ...data,
     timestamp: Timestamp.fromDate(now),
     createdAt: Timestamp.fromDate(now),
-  });
+  };
+  
+  console.log('💾 Salvando no Firestore...');
+  console.log('   - Campos incluídos:', Object.keys(documentData).join(', '));
+  console.log('   - photoUrl no documento?', documentData.photoUrl ? 'SIM ✅' : 'NÃO ❌');
+  
+  const docRef = await addDoc(collection(db, "attendance"), documentData);
+  
+  console.log('✅ Documento salvo no Firestore com ID:', docRef.id);
+  
   return docRef.id;
 }
 
@@ -425,5 +435,20 @@ export async function getPresencaStats() {
 // Função para excluir um registro de presença
 export async function deleteAttendanceRecord(id: string) {
   const docRef = doc(db, "attendance", id);
+  
+  // Buscar o documento antes de deletar para pegar a URL da foto
+  const docSnap = await getDoc(docRef);
+  
+  if (docSnap.exists()) {
+    const data = docSnap.data();
+    const photoUrl = data.photoUrl;
+    
+    // Se tem foto, retornar URL para exclusão (será deletada em actions.ts)
+    await deleteDoc(docRef);
+    
+    return { photoUrl };
+  }
+  
   await deleteDoc(docRef);
+  return { photoUrl: null };
 }

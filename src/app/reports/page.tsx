@@ -13,6 +13,8 @@ import { Edit, FileDown, QrCode, Save, X } from "lucide-react";
 import QRCode from 'qrcode';
 import * as React from "react";
 
+export const dynamic = 'force-dynamic';
+
 
 // Interface corrigida
 interface FilteredStats {

@@ -7,12 +7,12 @@ import { usePathname } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import {
-    Sidebar,
-    SidebarContent,
-    SidebarHeader,
-    SidebarMenu,
-    SidebarMenuButton,
-    SidebarMenuItem
+  Sidebar,
+  SidebarContent,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
 import { getUserType, UserType } from "@/lib/auth";
@@ -117,13 +117,18 @@ export function AppSidebar() {
   // Determinar quais links mostrar baseado no tipo de usuário
   const claimedUserType = (user as any).userType as UserType | undefined;
   const userType = claimedUserType || getUserType(user.email || '');
-  const menuItems = userType === UserType.SUPER_USER 
+  
+  // Verificar se é admin (SUPER_USER ou ADMIN_USER)
+  const isAdmin = userType === UserType.SUPER_USER || userType === 'ADMIN_USER';
+  const isEditor = userType === UserType.EDITOR_USER || userType === 'EDITOR_USER';
+  
+  const menuItems = isAdmin
     ? superUserMenuItems
-    : userType === UserType.EDITOR_USER
+    : isEditor
     ? editorUserMenuItems  
     : basicUserMenuItems;
 
-  console.log('🗂️ AppSidebar: Renderizando sidebar', { userType, menuItemsCount: menuItems.length });
+  console.log('🗂️ AppSidebar: Renderizando sidebar', { userType, isAdmin, isEditor, menuItemsCount: menuItems.length });
 
   return (
     <Sidebar className="border-r bg-sidebar text-sidebar-foreground print:hidden" collapsible="icon">
@@ -134,14 +139,19 @@ export function AppSidebar() {
             <h1 className="font-bold text-lg text-sidebar-foreground">
               IPDA - Presença
             </h1>
-            {userType === UserType.BASIC_USER && (
-              <span className="text-xs text-sidebar-muted-foreground">
-                Usuário Básico
+            {isAdmin && (
+              <span className="text-xs text-blue-400 font-semibold">
+                Administrador
               </span>
             )}
-            {userType === UserType.EDITOR_USER && (
+            {isEditor && !isAdmin && (
               <span className="text-xs text-sidebar-muted-foreground">
                 Editor de Presença
+              </span>
+            )}
+            {!isAdmin && !isEditor && (
+              <span className="text-xs text-sidebar-muted-foreground">
+                Usuário Básico
               </span>
             )}
           </div>

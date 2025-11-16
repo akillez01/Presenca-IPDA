@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teste de Upload - Firebase Storage</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      max-width: 600px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    h1 { color: #333; margin-bottom: 10px; font-size: 28px; }
+    .subtitle { color: #666; margin-bottom: 30px; }
+    .status-card {
+      padding: 20px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      border-left: 4px solid;
+    }
+    .status-card.info { background: #e3f2fd; border-color: #2196f3; }
+    .status-card.success { background: #e8f5e9; border-color: #4caf50; }
+    .status-card.error { background: #ffebee; border-color: #f44336; }
+    .status-card.warning { background: #fff3e0; border-color: #ff9800; }
+    .auth-info {
+      background: #f5f5f5;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .upload-section {
+      border: 2px dashed #ddd;
+      border-radius: 12px;
+      padding: 30px;
+      text-align: center;
+      margin-bottom: 20px;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .upload-section:hover { border-color: #667eea; background: #f8f9ff; }
+    .upload-section.dragging { border-color: #667eea; background: #e8ebff; }
+    input[type="file"] { display: none; }
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 15px 30px;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      transition: transform 0.2s;
+    }
+    button:hover { transform: translateY(-2px); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .preview { max-width: 100%; border-radius: 8px; margin: 20px 0; }
+    .log {
+      background: #1e1e1e;
+      color: #00ff00;
+      padding: 15px;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 20px;
+    }
+    .log-entry { margin: 5px 0; }
+    .log-entry.error { color: #ff6b6b; }
+    .log-entry.success { color: #51cf66; }
+    .log-entry.info { color: #74c0fc; }
+    .result-image { max-width: 100%; border-radius: 8px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔥 Teste Firebase Storage</h1>
+    <p class="subtitle">Verificação de upload com CORS configurado</p>
+
+    <div id="authStatus" class="auth-info">
+      <strong>Status de Autenticação:</strong> <span id="authEmail">Carregando...</span>
+    </div>
+
+    <div id="uploadSection" class="upload-section">
+      <p style="font-size: 48px; margin-bottom: 10px;">📸</p>
+      <p style="font-size: 18px; color: #333; margin-bottom: 5px;">Arraste uma imagem aqui</p>
+      <p style="font-size: 14px; color: #999;">ou clique para selecionar</p>
+      <input type="file" id="fileInput" accept="image/*">
+    </div>
+
+    <div id="preview"></div>
+
+    <button id="uploadBtn" disabled>Fazer Upload para Firebase Storage</button>
+
+    <div id="results"></div>
+
+    <div class="log" id="log"></div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+    import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+    import { getStorage, ref, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js';
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyA6_YWMcTzvKzCbZgl88SJvWpAUuE8LilE",
+      authDomain: "reuniao-ministerial.firebaseapp.com",
+      projectId: "reuniao-ministerial",
+      storageBucket: "reuniao-ministerial.firebasestorage.app",
+      messagingSenderId: "23562502277",
+      appId: "1:23562502277:web:ad150c66054fe08241e9ec"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const storage = getStorage(app);
+
+    let selectedFile = null;
+    let currentUser = null;
+
+    const log = (message, type = 'info') => {
+      const logEl = document.getElementById('log');
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(message);
+    };
+
+    const showStatus = (message, type = 'info') => {
+      const resultsEl = document.getElementById('results');
+      const statusCard = document.createElement('div');
+      statusCard.className = `status-card ${type}`;
+      statusCard.innerHTML = message;
+      resultsEl.innerHTML = '';
+      resultsEl.appendChild(statusCard);
+    };
+
+    // Monitorar autenticação
+    onAuthStateChanged(auth, (user) => {
+      currentUser = user;
+      const authEmail = document.getElementById('authEmail');
+      
+      if (user) {
+        authEmail.innerHTML = `✅ <strong>${user.email}</strong>`;
+        log(`✅ Autenticado como: ${user.email}`, 'success');
+      } else {
+        authEmail.innerHTML = '❌ <strong>Não autenticado</strong> - <a href="/login">Fazer login</a>';
+        log('❌ Usuário não autenticado', 'error');
+      }
+    });
+
+    // Upload section
+    const uploadSection = document.getElementById('uploadSection');
+    const fileInput = document.getElementById('fileInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const previewEl = document.getElementById('preview');
+
+    uploadSection.addEventListener('click', () => fileInput.click());
+
+    uploadSection.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadSection.classList.add('dragging');
+    });
+
+    uploadSection.addEventListener('dragleave', () => {
+      uploadSection.classList.remove('dragging');
+    });
+
+    uploadSection.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadSection.classList.remove('dragging');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        handleFile(files[0]);
+      }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+      }
+    });
+
+    function handleFile(file) {
+      if (!file.type.startsWith('image/')) {
+        log('❌ Arquivo não é uma imagem', 'error');
+        return;
+      }
+
+      selectedFile = file;
+      log(`📸 Imagem selecionada: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`, 'info');
+
+      // Preview
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        previewEl.innerHTML = `<img src="${e.target.result}" class="preview" alt="Preview">`;
+      };
+      reader.readAsDataURL(file);
+
+      uploadBtn.disabled = false;
+    }
+
+    uploadBtn.addEventListener('click', async () => {
+      if (!currentUser) {
+        showStatus('❌ <strong>Erro:</strong> Você precisa estar autenticado para fazer upload.<br><a href="/login">Clique aqui para fazer login</a>', 'error');
+        log('❌ Upload bloqueado: usuário não autenticado', 'error');
+        return;
+      }
+
+      if (!selectedFile) {
+        log('❌ Nenhuma imagem selecionada', 'error');
+        return;
+      }
+
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = 'Fazendo upload...';
+
+      try {
+        log('🚀 Iniciando upload...', 'info');
+        log(`📦 Bucket: reuniao-ministerial.firebasestorage.app`, 'info');
+        log(`📂 Path: attendance-photos/test-${Date.now()}.${selectedFile.name.split('.').pop()}`, 'info');
+
+        const timestamp = Date.now();
+        const ext = selectedFile.name.split('.').pop();
+        const fileName = `test-${timestamp}.${ext}`;
+        const storageRef = ref(storage, `attendance-photos/${fileName}`);
+
+        log('☁️ Enviando para Firebase Storage...', 'info');
+        
+        const snapshot = await uploadBytes(storageRef, selectedFile, {
+          contentType: selectedFile.type,
+          customMetadata: {
+            uploadDate: new Date().toISOString(),
+            testUpload: 'true'
+          }
+        });
+
+        log('✅ Upload concluído!', 'success');
+        log(`📊 Bytes transferidos: ${snapshot.metadata.size}`, 'info');
+
+        const downloadURL = await getDownloadURL(storageRef);
+        log(`🔗 URL gerada: ${downloadURL}`, 'success');
+
+        showStatus(`
+          <strong>✅ Upload realizado com sucesso!</strong><br><br>
+          <strong>Nome do arquivo:</strong> ${fileName}<br>
+          <strong>Tamanho:</strong> ${(selectedFile.size / 1024).toFixed(2)} KB<br>
+          <strong>Path:</strong> attendance-photos/${fileName}<br>
+          <strong>URL:</strong> <a href="${downloadURL}" target="_blank">Abrir imagem</a><br><br>
+          <img src="${downloadURL}" class="result-image" alt="Imagem uploadada">
+        `, 'success');
+
+        uploadBtn.textContent = '✅ Upload Concluído!';
+
+      } catch (error) {
+        log(`❌ Erro no upload: ${error.code} - ${error.message}`, 'error');
+        
+        let errorMessage = `<strong>❌ Erro no upload:</strong><br><br>`;
+        errorMessage += `<strong>Código:</strong> ${error.code}<br>`;
+        errorMessage += `<strong>Mensagem:</strong> ${error.message}<br><br>`;
+
+        if (error.code === 'storage/unauthorized') {
+          errorMessage += '🔒 Problema de autenticação ou permissões nas regras do Storage.';
+        } else if (error.message.includes('CORS')) {
+          errorMessage += '🌐 Problema de CORS. O servidor bloqueou a requisição.';
+        }
+
+        showStatus(errorMessage, 'error');
+        uploadBtn.textContent = 'Tentar Novamente';
+        uploadBtn.disabled = false;
+      }
+    });
+
+    log('🔥 Firebase inicializado', 'success');
+    log(`📦 Storage Bucket: ${firebaseConfig.storageBucket}`, 'info');
+  </script>
+</body>
+</html>

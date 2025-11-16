@@ -9,7 +9,7 @@ const DEBUG = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_DEBUG ===
 
 interface RoutePermission {
   path: string;
-  allowedUserTypes: UserType[];
+  allowedUserTypes: (UserType | string)[];
   allowedRoles?: string[]; // Adicionar suporte para roles do Firestore
   allowedPermissions?: string[];
   redirectPath?: string;
@@ -20,21 +20,21 @@ export const ROUTE_PERMISSIONS: RoutePermission[] = [
   // Rotas para editores e super usuários (relatórios)
   {
     path: '/reports',
-    allowedUserTypes: [UserType.EDITOR_USER, UserType.SUPER_USER],
+    allowedUserTypes: [UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
     allowedRoles: ['editor', 'admin', 'super'],
     allowedPermissions: ['reports'],
     redirectPath: '/'
   },
   {
     path: '/admin/users',
-    allowedUserTypes: [UserType.SUPER_USER],
+    allowedUserTypes: [UserType.SUPER_USER, 'ADMIN_USER'],
     allowedRoles: ['admin', 'super'],
     allowedPermissions: ['admin_users'],
     redirectPath: '/'
   },
   {
     path: '/config',
-    allowedUserTypes: [UserType.SUPER_USER],
+    allowedUserTypes: [UserType.SUPER_USER, 'ADMIN_USER'],
     allowedRoles: ['admin', 'super'],
     allowedPermissions: ['config'],
     redirectPath: '/'
@@ -43,31 +43,31 @@ export const ROUTE_PERMISSIONS: RoutePermission[] = [
   // Rotas para usuários básicos, editores e super usuários
   {
     path: '/',
-    allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER],
+    allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
     allowedRoles: ['basic_user', 'user', 'editor', 'admin', 'super'],
     allowedPermissions: ['dashboard']
   },
   {
     path: '/register',
-    allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER],
+    allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
     allowedRoles: ['basic_user', 'user', 'editor', 'admin', 'super'],
     allowedPermissions: ['register']
   },
   {
     path: '/presencadecadastrados',
-    allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER],
+    allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
     allowedRoles: ['basic_user', 'user', 'editor', 'admin', 'super'],
     allowedPermissions: ['presencadecadastrados']
   },
   {
     path: '/cartaderecomendacao',
-    allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER],
+    allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
     allowedRoles: ['basic_user', 'user', 'editor', 'admin', 'super'],
     allowedPermissions: ['letters']
   },
   {
     path: '/cartaderecomendacao1dia',
-    allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER],
+    allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
     allowedRoles: ['basic_user', 'user', 'editor', 'admin', 'super'],
     allowedPermissions: ['letters']
   }

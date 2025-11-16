@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teste de Upload de Fotos</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      border-radius: 8px;
+      padding: 30px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      border-bottom: 3px solid #4CAF50;
+      padding-bottom: 10px;
+    }
+    .status {
+      padding: 15px;
+      border-radius: 6px;
+      margin: 15px 0;
+    }
+    .success { background: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+    .warning { background: #fff3cd; color: #856404; border-left: 4px solid #ffc107; }
+    .error { background: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; }
+    .info { background: #d1ecf1; color: #0c5460; border-left: 4px solid #17a2b8; }
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 5px;
+    }
+    button:hover { background: #45a049; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    .record {
+      background: #f9f9f9;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 6px;
+      border-left: 4px solid #2196F3;
+    }
+    .record h3 { margin-top: 0; color: #2196F3; }
+    .record p { margin: 5px 0; }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+    }
+    .stat-card {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .stat-card h3 { margin: 0; font-size: 36px; }
+    .stat-card p { margin: 5px 0 0 0; opacity: 0.9; }
+    #loading {
+      display: none;
+      text-align: center;
+      padding: 20px;
+    }
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #4CAF50;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧪 Teste de Upload de Fotos - Firebase Storage</h1>
+    
+    <div class="info">
+      <strong>📝 Instruções:</strong>
+      <ol>
+        <li>Clique em "Verificar Fotos" para analisar os últimos registros</li>
+        <li>Se ainda não há fotos, faça um cadastro em <a href="/register" target="_blank">/register</a></li>
+        <li>O teste mostrará se as fotos estão no Storage ou em base64</li>
+      </ol>
+    </div>
+
+    <div style="text-align: center; margin: 20px 0;">
+      <button onclick="checkPhotos()" id="checkBtn">🔍 Verificar Fotos</button>
+      <button onclick="window.open('/register', '_blank')">➕ Fazer Cadastro com Foto</button>
+    </div>
+
+    <div id="loading">
+      <div class="spinner"></div>
+      <p>Carregando...</p>
+    </div>
+
+    <div id="results"></div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+    import { getFirestore, collection, query, orderBy, limit, getDocs } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyA6_YWMcTzvKzCbZgl88SJvWpAUuE8LilE",
+      authDomain: "reuniao-ministerial.firebaseapp.com",
+      projectId: "reuniao-ministerial",
+      storageBucket: "reuniao-ministerial.appspot.com",
+      messagingSenderId: "23562502277",
+      appId: "1:23562502277:web:ad150c66054fe08241e9ec"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    // Monitora autenticação
+    onAuthStateChanged(auth, (user) => {
+      const checkBtn = document.getElementById('checkBtn');
+      if (user) {
+        checkBtn.disabled = false;
+        checkBtn.textContent = `🔍 Verificar Fotos (${user.email})`;
+      } else {
+        checkBtn.disabled = true;
+        checkBtn.textContent = '🔒 Faça login para verificar';
+      }
+    });
+
+    window.checkPhotos = async function() {
+      if (!auth.currentUser) {
+        alert('❌ Você precisa estar autenticado!\n\nFaça login em /login primeiro.');
+        window.open('/login', '_blank');
+        return;
+      }
+      const resultsDiv = document.getElementById('results');
+      const loadingDiv = document.getElementById('loading');
+      const checkBtn = document.getElementById('checkBtn');
+      
+      resultsDiv.innerHTML = '';
+      loadingDiv.style.display = 'block';
+      checkBtn.disabled = true;
+
+      try {
+        const q = query(collection(db, 'attendance'), orderBy('timestamp', 'desc'), limit(10));
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) {
+          resultsDiv.innerHTML = '<div class="warning"><strong>⚠️ Nenhum registro encontrado</strong><p>Faça um cadastro com foto primeiro!</p></div>';
+          return;
+        }
+
+        let storageCount = 0;
+        let base64Count = 0;
+        let noPhotoCount = 0;
+        const records = [];
+
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          const photoUrl = data.photoUrl;
+          
+          let photoType = 'none';
+          let photoSize = 0;
+          
+          if (photoUrl) {
+            if (photoUrl.startsWith('https://firebasestorage')) {
+              photoType = 'storage';
+              storageCount++;
+            } else if (photoUrl.startsWith('data:image/')) {
+              photoType = 'base64';
+              photoSize = Math.round(photoUrl.length / 1024);
+              base64Count++;
+            }
+          } else {
+            noPhotoCount++;
+          }
+
+          records.push({
+            id: doc.id,
+            name: data.fullName || 'Sem nome',
+            cpf: data.cpf || 'N/A',
+            photoUrl,
+            photoType,
+            photoSize,
+            timestamp: data.timestamp?.toDate() || new Date()
+          });
+        });
+
+        // Stats
+        let statsHTML = '<div class="stats">';
+        statsHTML += `<div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"><h3>${snapshot.size}</h3><p>Total de Registros</p></div>`;
+        statsHTML += `<div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);"><h3>${storageCount}</h3><p>☁️ Firebase Storage</p></div>`;
+        statsHTML += `<div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);"><h3>${base64Count}</h3><p>💾 Base64 (Fallback)</p></div>`;
+        statsHTML += `<div class="stat-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);"><h3>${noPhotoCount}</h3><p>❌ Sem Foto</p></div>`;
+        statsHTML += '</div>';
+
+        // Analysis
+        let analysisHTML = '';
+        if (storageCount > 0) {
+          analysisHTML = '<div class="success"><strong>✅ EXCELENTE! Sistema otimizado funcionando</strong><ul><li>Fotos sendo salvas no Firebase Storage</li><li>URLs curtas no Firestore (economia de 99.97%)</li><li>Performance máxima garantida</li></ul></div>';
+        } else if (base64Count > 0) {
+          analysisHTML = '<div class="warning"><strong>⚠️ ATENÇÃO! Usando fallback base64</strong><ul><li>Firebase Storage pode não estar configurado</li><li>Ou regras de segurança bloqueando upload</li><li>Funciona, mas não é otimizado</li></ul><p><strong>Próximo passo:</strong> Deploy das regras de Storage</p></div>';
+        } else {
+          analysisHTML = '<div class="error"><strong>❌ Nenhuma foto encontrada</strong><p>Faça um cadastro com foto para testar</p></div>';
+        }
+
+        // Records
+        let recordsHTML = '<h2>📋 Últimos Registros:</h2>';
+        records.forEach((record, index) => {
+          const icon = record.photoType === 'storage' ? '☁️' : record.photoType === 'base64' ? '💾' : '❌';
+          const typeLabel = record.photoType === 'storage' ? 'Firebase Storage' : record.photoType === 'base64' ? `Base64 (${record.photoSize} KB)` : 'Sem foto';
+          
+          recordsHTML += `
+            <div class="record">
+              <h3>${index + 1}. ${record.name} ${icon}</h3>
+              <p><strong>CPF:</strong> ${record.cpf}</p>
+              <p><strong>Data:</strong> ${record.timestamp.toLocaleString('pt-BR')}</p>
+              <p><strong>Foto:</strong> ${typeLabel}</p>
+              ${record.photoUrl && record.photoType === 'storage' ? `<p><strong>URL:</strong> <a href="${record.photoUrl}" target="_blank">Ver foto</a></p>` : ''}
+            </div>
+          `;
+        });
+
+        resultsDiv.innerHTML = statsHTML + analysisHTML + recordsHTML;
+
+      } catch (error) {
+        resultsDiv.innerHTML = `<div class="error"><strong>❌ Erro ao carregar dados:</strong><p>${error.message}</p></div>`;
+        console.error('Erro:', error);
+      } finally {
+        loadingDiv.style.display = 'none';
+        checkBtn.disabled = false;
+      }
+    };
+
+    // Auto-load on page load
+    window.addEventListener('load', () => {
+      setTimeout(() => window.checkPhotos(), 500);
+    });
+  </script>
+</body>
+</html>

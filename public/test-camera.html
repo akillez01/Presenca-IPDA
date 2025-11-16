@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teste de Câmera Mobile</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 { margin: 0 0 10px; font-size: 24px; }
+    h2 { margin: 0 0 10px; font-size: 18px; color: #666; }
+    button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+      margin: 5px;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    video, img {
+      max-width: 100%;
+      border-radius: 8px;
+      margin: 10px 0;
+    }
+    .log {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 15px;
+      border-radius: 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 4px;
+      margin: 10px 0;
+    }
+    .status.success { background: #d1fae5; color: #065f46; }
+    .status.error { background: #fee2e2; color: #991b1b; }
+    .status.info { background: #dbeafe; color: #1e40af; }
+    input[type="file"] { margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔍 Teste de Câmera Mobile</h1>
+    <p>Use esta página para diagnosticar problemas com câmera</p>
+  </div>
+
+  <div class="card">
+    <h2>📊 Informações do Dispositivo</h2>
+    <div id="deviceInfo" class="status info">Carregando...</div>
+  </div>
+
+  <div class="card">
+    <h2>🎥 Teste getUserMedia</h2>
+    <button id="btnStartCamera">Iniciar Câmera</button>
+    <button id="btnStopCamera" disabled>Parar Câmera</button>
+    <button id="btnCapture" disabled>Capturar Foto</button>
+    <div id="cameraStatus"></div>
+    <video id="video" autoplay playsinline muted style="display:none;"></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <img id="preview" style="display:none;">
+  </div>
+
+  <div class="card">
+    <h2>📁 Teste Input File</h2>
+    <input type="file" id="fileInput" accept="image/*">
+    <div id="fileStatus"></div>
+    <img id="filePreview" style="display:none;">
+  </div>
+
+  <div class="card">
+    <h2>📝 Console de Logs</h2>
+    <button id="btnClearLog">Limpar Logs</button>
+    <div id="logConsole" class="log">Aguardando ações...</div>
+  </div>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const preview = document.getElementById('preview');
+    const filePreview = document.getElementById('filePreview');
+    const logConsole = document.getElementById('logConsole');
+    const deviceInfo = document.getElementById('deviceInfo');
+    const cameraStatus = document.getElementById('cameraStatus');
+    const fileStatus = document.getElementById('fileStatus');
+    
+    let stream = null;
+    let logs = [];
+
+    function log(message, type = 'info') {
+      const timestamp = new Date().toLocaleTimeString('pt-BR');
+      const logEntry = `[${timestamp}] ${message}`;
+      logs.push(logEntry);
+      logConsole.textContent = logs.join('\n');
+      logConsole.scrollTop = logConsole.scrollHeight;
+      console.log(message);
+    }
+
+    // Informações do dispositivo
+    async function loadDeviceInfo() {
+      const info = [];
+      info.push(`🌐 User Agent: ${navigator.userAgent}`);
+      info.push(`🔒 Contexto Seguro (HTTPS): ${window.isSecureContext ? '✅ SIM' : '❌ NÃO'}`);
+      info.push(`📱 getUserMedia disponível: ${typeof navigator.mediaDevices?.getUserMedia === 'function' ? '✅ SIM' : '❌ NÃO'}`);
+      info.push(`📐 Resolução: ${window.screen.width}x${window.screen.height}`);
+      
+      if (typeof navigator.mediaDevices?.enumerateDevices === 'function') {
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoDevices = devices.filter(d => d.kind === 'videoinput');
+          info.push(`🎥 Câmeras encontradas: ${videoDevices.length}`);
+          videoDevices.forEach((d, i) => {
+            info.push(`   ${i + 1}. ${d.label || 'Câmera ' + (i + 1)}`);
+          });
+        } catch (err) {
+          info.push(`⚠️ Erro ao listar dispositivos: ${err.message}`);
+        }
+      }
+      
+      deviceInfo.textContent = info.join('\n');
+      log('ℹ️ Informações do dispositivo carregadas');
+    }
+
+    // Iniciar câmera
+    document.getElementById('btnStartCamera').addEventListener('click', async () => {
+      log('📹 Iniciando câmera...');
+      
+      if (!window.isSecureContext) {
+        cameraStatus.innerHTML = '<div class="status error">❌ Contexto inseguro! Use HTTPS ou localhost</div>';
+        log('❌ Contexto inseguro detectado');
+        return;
+      }
+
+      try {
+        const constraints = [
+          { video: { facingMode: 'environment' } },
+          { video: true },
+          { video: { facingMode: 'user' } }
+        ];
+
+        for (let i = 0; i < constraints.length; i++) {
+          log(`🔄 Tentativa ${i + 1}: ${JSON.stringify(constraints[i])}`);
+          try {
+            stream = await navigator.mediaDevices.getUserMedia(constraints[i]);
+            if (stream.getVideoTracks().length > 0) {
+              log(`✅ Câmera obtida na tentativa ${i + 1}`);
+              break;
+            }
+          } catch (err) {
+            log(`⚠️ Tentativa ${i + 1} falhou: ${err.name} - ${err.message}`);
+          }
+        }
+
+        if (!stream) {
+          throw new Error('Nenhuma câmera disponível');
+        }
+
+        const tracks = stream.getVideoTracks();
+        log(`📹 Tracks obtidas: ${tracks.length}`);
+        tracks.forEach((track, i) => {
+          const settings = track.getSettings();
+          log(`   Track ${i + 1}: ${track.label} (${settings.width}x${settings.height})`);
+        });
+
+        video.srcObject = stream;
+        video.style.display = 'block';
+        await video.play();
+        
+        log('✅ Câmera iniciada com sucesso');
+        cameraStatus.innerHTML = '<div class="status success">✅ Câmera ativa</div>';
+        
+        document.getElementById('btnStartCamera').disabled = true;
+        document.getElementById('btnStopCamera').disabled = false;
+        document.getElementById('btnCapture').disabled = false;
+        
+      } catch (err) {
+        log(`❌ Erro ao iniciar câmera: ${err.name} - ${err.message}`);
+        cameraStatus.innerHTML = `<div class="status error">❌ ${err.message}</div>`;
+      }
+    });
+
+    // Parar câmera
+    document.getElementById('btnStopCamera').addEventListener('click', () => {
+      if (stream) {
+        stream.getTracks().forEach(track => {
+          track.stop();
+          log(`🛑 Track parada: ${track.label}`);
+        });
+        stream = null;
+      }
+      video.srcObject = null;
+      video.style.display = 'none';
+      
+      log('🛑 Câmera parada');
+      cameraStatus.innerHTML = '<div class="status info">ℹ️ Câmera desativada</div>';
+      
+      document.getElementById('btnStartCamera').disabled = false;
+      document.getElementById('btnStopCamera').disabled = true;
+      document.getElementById('btnCapture').disabled = true;
+    });
+
+    // Capturar foto
+    document.getElementById('btnCapture').addEventListener('click', () => {
+      log('📸 Capturando foto...');
+      
+      const width = video.videoWidth || 640;
+      const height = video.videoHeight || 480;
+      
+      canvas.width = width;
+      canvas.height = height;
+      
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, width, height);
+      
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      preview.src = dataUrl;
+      preview.style.display = 'block';
+      
+      const sizeKB = Math.round(dataUrl.length / 1024);
+      log(`✅ Foto capturada: ${width}x${height}, ${sizeKB} KB`);
+      cameraStatus.innerHTML = `<div class="status success">✅ Foto capturada (${sizeKB} KB)</div>`;
+    });
+
+    // Upload de arquivo
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      log(`📁 Arquivo selecionado: ${file.name}`);
+      log(`   Tipo: ${file.type}`);
+      log(`   Tamanho: ${Math.round(file.size / 1024)} KB`);
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        filePreview.src = reader.result;
+        filePreview.style.display = 'block';
+        const sizeKB = Math.round(reader.result.length / 1024);
+        log(`✅ Arquivo lido: ${sizeKB} KB`);
+        fileStatus.innerHTML = `<div class="status success">✅ Arquivo carregado (${sizeKB} KB)</div>`;
+      };
+      reader.onerror = (err) => {
+        log(`❌ Erro ao ler arquivo: ${err}`);
+        fileStatus.innerHTML = `<div class="status error">❌ Erro ao ler arquivo</div>`;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // Limpar logs
+    document.getElementById('btnClearLog').addEventListener('click', () => {
+      logs = [];
+      logConsole.textContent = 'Logs limpos';
+    });
+
+    // Inicializar
+    loadDeviceInfo();
+    log('🚀 Página de teste carregada');
+  </script>
+</body>
+</html>

@@ -5,6 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useAuth } from "@/hooks/use-auth";
 import Link from "next/link";
 
+export const dynamic = 'force-dynamic';
+
 export default function PageSimples() {
   const { user, loading } = useAuth();
 

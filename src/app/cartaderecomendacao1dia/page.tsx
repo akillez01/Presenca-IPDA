@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import html2pdf from "html2pdf.js";
 import { useRef, useState } from "react";
+
+export const dynamic = 'force-dynamic';
 
 export default function CartaRecomendacao1DiaPage() {
   const printRef = useRef<HTMLDivElement>(null);
@@ -17,9 +18,12 @@ export default function CartaRecomendacao1DiaPage() {
   // CORREÇÃO APLICADA AQUI
   // A função agora clona a área de impressão para garantir 100% que os
   // dados preenchidos sejam capturados pelo PDF.
+  // Import dinâmico para evitar erro "self is not defined" no build
   // ===============================================================
   async function handleSavePDF() {
     if (printRef.current) {
+      const html2pdf = (await import('html2pdf.js')).default;
+      
       const elementToPrint = printRef.current.cloneNode(true) as HTMLDivElement;
       document.body.appendChild(elementToPrint);
 

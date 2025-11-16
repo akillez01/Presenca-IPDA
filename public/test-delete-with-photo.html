@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teste de Exclusão com Foto</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      max-width: 800px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    h1 { color: #333; margin-bottom: 30px; }
+    .info { background: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+    .record-list { margin: 20px 0; }
+    .record-item {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .record-info { flex: 1; }
+    .record-photo { width: 60px; height: 60px; border-radius: 8px; margin-right: 15px; }
+    button {
+      background: #f44336;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:hover { background: #d32f2f; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .log {
+      background: #1e1e1e;
+      color: #00ff00;
+      padding: 15px;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🗑️ Teste de Exclusão com Foto</h1>
+    
+    <div class="info">
+      <strong>Funcionalidade:</strong> Quando um registro é excluído, a foto também é automaticamente removida do Firebase Storage.
+    </div>
+
+    <div id="authStatus"></div>
+    <div id="recordsList"></div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+    import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+    import { getFirestore, collection, query, orderBy, limit, getDocs, doc, deleteDoc, getDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+    import { getStorage, ref, deleteObject } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js';
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyA6_YWMcTzvKzCbZgl88SJvWpAUuE8LilE",
+      authDomain: "reuniao-ministerial.firebaseapp.com",
+      projectId: "reuniao-ministerial",
+      storageBucket: "reuniao-ministerial.firebasestorage.app",
+      messagingSenderId: "23562502277",
+      appId: "1:23562502277:web:ad150c66054fe08241e9ec"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const storage = getStorage(app);
+
+    let currentUser = null;
+
+    const log = (message, type = 'info') => {
+      const logEl = document.getElementById('log');
+      const entry = document.createElement('div');
+      entry.style.color = type === 'error' ? '#ff6b6b' : type === 'success' ? '#51cf66' : '#74c0fc';
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(message);
+    };
+
+    function getStoragePathFromUrl(downloadUrl) {
+      if (!downloadUrl || downloadUrl.startsWith('data:image/')) {
+        return null;
+      }
+      try {
+        const url = new URL(downloadUrl);
+        const [, pathWithEncoding] = url.pathname.split('/o/');
+        if (!pathWithEncoding) return null;
+        return decodeURIComponent(pathWithEncoding.split('?')[0]);
+      } catch (error) {
+        return null;
+      }
+    }
+
+    async function deleteRecordWithPhoto(recordId, photoUrl) {
+      try {
+        log(`🗑️ Iniciando exclusão do registro: ${recordId}`, 'info');
+
+        // 1. Buscar documento
+        const docRef = doc(db, 'attendance', recordId);
+        const docSnap = await getDoc(docRef);
+
+        if (!docSnap.exists()) {
+          log('❌ Registro não encontrado', 'error');
+          return;
+        }
+
+        // 2. Deletar foto se existir
+        if (photoUrl) {
+          const storagePath = getStoragePathFromUrl(photoUrl);
+          if (storagePath) {
+            try {
+              log(`🔍 Path da foto: ${storagePath}`, 'info');
+              const storageRef = ref(storage, storagePath);
+              await deleteObject(storageRef);
+              log('✅ Foto excluída do Storage', 'success');
+            } catch (photoError) {
+              log(`⚠️ Erro ao excluir foto: ${photoError.message}`, 'error');
+            }
+          } else {
+            log('📝 Foto é base64 local (não há arquivo no Storage)', 'info');
+          }
+        } else {
+          log('📝 Registro sem foto', 'info');
+        }
+
+        // 3. Deletar documento
+        await deleteDoc(docRef);
+        log('✅ Registro excluído do Firestore', 'success');
+
+        // 4. Atualizar lista
+        loadRecords();
+
+      } catch (error) {
+        log(`❌ Erro geral: ${error.message}`, 'error');
+      }
+    }
+
+    async function loadRecords() {
+      const recordsListEl = document.getElementById('recordsList');
+      recordsListEl.innerHTML = '<p>Carregando registros...</p>';
+
+      try {
+        const q = query(collection(db, 'attendance'), orderBy('createdAt', 'desc'), limit(10));
+        const querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) {
+          recordsListEl.innerHTML = '<p>Nenhum registro encontrado.</p>';
+          return;
+        }
+
+        let html = '<div class="record-list"><h3>Últimos 10 Registros:</h3>';
+        
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          const hasPhoto = data.photoUrl ? '✅' : '❌';
+          const isStorage = data.photoUrl && !data.photoUrl.startsWith('data:') ? '☁️' : '💾';
+          
+          html += `
+            <div class="record-item">
+              <div class="record-info">
+                <strong>${data.fullName}</strong> - CPF: ${data.cpf}<br>
+                <small>Foto: ${hasPhoto} ${hasPhoto === '✅' ? isStorage : ''}</small>
+              </div>
+              ${data.photoUrl && !data.photoUrl.startsWith('data:') ? 
+                `<img src="${data.photoUrl}" class="record-photo" alt="Foto">` : 
+                ''}
+              <button onclick="deleteRecord('${doc.id}', '${data.photoUrl || ''}', '${data.fullName}')">
+                🗑️ Excluir
+              </button>
+            </div>
+          `;
+        });
+
+        html += '</div>';
+        recordsListEl.innerHTML = html;
+
+      } catch (error) {
+        log(`❌ Erro ao carregar registros: ${error.message}`, 'error');
+        recordsListEl.innerHTML = '<p>Erro ao carregar registros.</p>';
+      }
+    }
+
+    window.deleteRecord = async function(id, photoUrl, name) {
+      if (!confirm(`Tem certeza que deseja excluir ${name}?\n\nIsso também excluirá a foto do Firebase Storage.`)) {
+        return;
+      }
+
+      await deleteRecordWithPhoto(id, photoUrl);
+    };
+
+    onAuthStateChanged(auth, (user) => {
+      currentUser = user;
+      const authStatusEl = document.getElementById('authStatus');
+      
+      if (user) {
+        authStatusEl.innerHTML = `<div class="info">✅ Autenticado como: <strong>${user.email}</strong></div>`;
+        log(`✅ Autenticado como: ${user.email}`, 'success');
+        loadRecords();
+      } else {
+        authStatusEl.innerHTML = '<div class="info">❌ Não autenticado - <a href="/login">Fazer login</a></div>';
+        log('❌ Usuário não autenticado', 'error');
+      }
+    });
+
+    log('🔥 Sistema de exclusão carregado', 'success');
+  </script>
+</body>
+</html>

@@ -15,6 +15,8 @@ import type { AttendanceRecord } from "@/lib/types";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+export const dynamic = 'force-dynamic';
+
 type PhotoSelectionState = {
   file?: File;
   dataUrl?: string | null;

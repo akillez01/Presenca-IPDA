@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// Firebase Storage Security Rules
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Regra para fotos de presença - permite upload/leitura/exclusão autenticada
+    match /attendance-photos/{fileName} {
+      // Permite leitura para usuários autenticados
+      allow read: if request.auth != null;
+      
+      // Permite upload para usuários autenticados
+      allow create, update: if request.auth != null
+                            && request.resource.size < 2 * 1024 * 1024  // Máximo 2MB (já comprimido)
+                            && request.resource.contentType.matches('image/.*');  // Apenas imagens
+      
+      // Permite exclusão para usuários autenticados
+      allow delete: if request.auth != null;
+    }
+    
+    // Regra padrão - bloqueia tudo que não corresponder às regras acima
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

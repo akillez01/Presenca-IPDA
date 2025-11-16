@@ -45,7 +45,8 @@ export const attendanceSchema = z.object({
   city: z.string().min(2, { message: "O nome da cidade deve ter pelo menos 2 caracteres." }),
   shift: z.enum(['Manhã', 'Tarde'], { required_error: "Selecione um turno." }),
   status: z.enum(['Presente', 'Ausente', 'Justificado']).default('Presente'),
-  photoUrl: z.string().url({ message: 'URL de foto inválida.' }).optional(),
+  // photoUrl aceita URLs normais ou data URLs (base64)
+  photoUrl: z.string().nullable().optional(),
 });
 
 export type AttendanceFormValues = z.infer<typeof attendanceSchema>;

@@ -12,6 +12,9 @@ import { BrowserMultiFormatReader } from "@zxing/library";
 import { AlertCircle, Camera, CheckCircle, Clock, QrCode, Search, UserCheck, Users, Zap } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+// Força renderização dinâmica para evitar erros de hydration
+export const dynamic = 'force-dynamic';
+
 export default function QRScannerPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -30,10 +33,15 @@ export default function QRScannerPage() {
   // Para entrada manual de CPF
   const [manualCpf, setManualCpf] = useState("");
   
+  // Controle de câmeras
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [selectedCameraIndex, setSelectedCameraIndex] = useState(0);
+  
   // Reader do ZXing
   const codeReader = useRef<BrowserMultiFormatReader | null>(null);
   const userStoppedRef = useRef(false);
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isStartingCameraRef = useRef(false); // Previne múltiplas chamadas simultâneas
 
   const loadRecentScans = useCallback(async () => {
     try {
@@ -90,52 +98,147 @@ export default function QRScannerPage() {
   }, []);
 
   const startCamera = async () => {
+    // Previne múltiplas chamadas simultâneas
+    if (isStartingCameraRef.current) {
+      console.log('⚠️ startCamera já está em execução, ignorando chamada duplicada');
+      return;
+    }
+    
+    isStartingCameraRef.current = true;
+    
     try {
       setError("");
       userStoppedRef.current = false;
+      
+      console.log('📹 [QRScanner] Iniciando câmera...');
+      
+      // IMPORTANTE: Primeiro solicita permissão da câmera usando getUserMedia
+      // Isso garante que os deviceIds sejam populados corretamente
+      console.log('🔐 Solicitando permissão de câmera...');
+      try {
+        const permissionStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        // Para o stream temporário após obter permissão
+        permissionStream.getTracks().forEach(track => track.stop());
+        console.log('✅ Permissão de câmera concedida');
+      } catch (permError) {
+        console.error('❌ Permissão de câmera negada:', permError);
+        setError('Permissão de câmera negada. Por favor, permita o acesso à câmera nas configurações do navegador.');
+        return;
+      }
       
       // Inicializa o reader do ZXing
       if (!codeReader.current) {
         codeReader.current = new BrowserMultiFormatReader();
       }
 
-      // Obtém lista de câmeras
+      // Agora lista as câmeras (após permissão, os deviceIds estarão disponíveis)
       const videoDevices = await codeReader.current.listVideoInputDevices();
+      
+      console.log('🎥 Câmeras encontradas:', videoDevices.length);
+      videoDevices.forEach((device, idx) => {
+        const deviceIdPreview = device.deviceId ? device.deviceId.slice(0, 8) + '...' : 'sem-id';
+        console.log(`   ${idx + 1}. ${device.label || 'Video device ' + (idx + 1)} (${deviceIdPreview})`);
+      });
       
       if (videoDevices.length === 0) {
         setError('Nenhuma câmera encontrada no dispositivo.');
         return;
       }
+      
+      // Filtra dispositivos que têm deviceId válido
+      const validDevices = videoDevices.filter(device => device.deviceId);
+      if (validDevices.length === 0) {
+        console.error('❌ Nenhuma câmera com deviceId válido encontrada');
+        setError('Erro ao acessar câmera. Tente recarregar a página e conceder permissão novamente.');
+        return;
+      }
 
-      // Usa a primeira câmera disponível (normalmente câmera traseira)
-      const selectedDeviceId = videoDevices[0].deviceId;
+      console.log('✅ Câmeras válidas:', validDevices.length);
+      // Salva câmeras válidas disponíveis para permitir troca
+      setAvailableCameras(validDevices);
+      
+      // Estratégia de seleção de câmera:
+      // 1. Se usuário já selecionou uma câmera, usa essa
+      // 2. Se tem múltiplas câmeras, prefere a última (geralmente webcam externa em desktop)
+      // 3. Em mobile, prefere câmera traseira (environment)
+      // 4. Fallback para primeira disponível
+      let selectedIndex = selectedCameraIndex;
+      
+      // Primeira vez inicializando ou índice inválido
+      if (selectedIndex >= validDevices.length) {
+        if (validDevices.length > 1) {
+          // Desktop com webcam externa: última câmera geralmente é a externa
+          const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+          
+          if (isMobile) {
+            // Mobile: busca câmera traseira (environment)
+            const backCameraIndex = validDevices.findIndex(device => 
+              device.label.toLowerCase().includes('back') || 
+              device.label.toLowerCase().includes('traseira') ||
+              device.label.toLowerCase().includes('environment')
+            );
+            selectedIndex = backCameraIndex >= 0 ? backCameraIndex : validDevices.length - 1;
+            console.log('📱 Mobile: usando câmera', backCameraIndex >= 0 ? 'traseira' : 'última disponível');
+          } else {
+            // Desktop: última câmera (geralmente webcam externa)
+            selectedIndex = validDevices.length - 1;
+            console.log('💻 Desktop: usando última câmera (geralmente externa)');
+          }
+        } else {
+          // Apenas uma câmera disponível
+          selectedIndex = 0;
+          console.log('📹 Apenas uma câmera válida disponível');
+        }
+        setSelectedCameraIndex(selectedIndex);
+      }
+      
+      const selectedDeviceId = validDevices[selectedIndex].deviceId;
+      console.log('✅ Câmera selecionada:', validDevices[selectedIndex]?.label || 'Desconhecida');
+      console.log('🎬 Device ID:', selectedDeviceId);
+      
+      if (!videoRef.current) {
+        console.error('❌ videoRef.current é null!');
+        setError('Erro interno: elemento de vídeo não encontrado.');
+        return;
+      }
+      
+      console.log('📹 Elemento video existe:', !!videoRef.current);
+      console.log('🚀 Iniciando decodeFromVideoDevice...');
       
       // Inicia o escaneamento contínuo
       await codeReader.current.decodeFromVideoDevice(
         selectedDeviceId,
-        videoRef.current!,
+        videoRef.current,
         (result, error) => {
           if (result) {
             // QR Code detectado
             const qrData = result.getText();
+            console.log('📱 QR Code detectado:', qrData);
             setResult(qrData);
             processQRCode(qrData);
           }
           if (error && error.name !== 'NotFoundException') {
-            console.warn('Erro no scanner:', error);
+            console.warn('⚠️ Erro no scanner:', error);
           }
         }
       );
       
+      console.log('✅ Scanner iniciado com sucesso!');
       setIsScanning(true);
       
     } catch (err) {
-      console.error('Erro ao acessar câmera:', err);
+      console.error('❌ Erro ao acessar câmera:', err);
+      console.error('❌ Stack trace:', err instanceof Error ? err.stack : 'N/A');
       setError('Erro ao acessar a câmera. Verifique as permissões do navegador.');
+    } finally {
+      isStartingCameraRef.current = false;
     }
   };
 
   const stopCamera = (isAutomatic = false) => {
+    console.log('🛑 Parando câmera...', isAutomatic ? '(automático)' : '(manual)');
+    isStartingCameraRef.current = false; // Reset da flag
+    
     if (codeReader.current) {
       codeReader.current.reset();
     }
@@ -147,6 +250,24 @@ export default function QRScannerPage() {
       userStoppedRef.current = true;
     }
     setIsScanning(false);
+  };
+
+  const switchCamera = () => {
+    if (availableCameras.length <= 1) return;
+    
+    // Para a câmera atual
+    stopCamera(false);
+    
+    // Seleciona próxima câmera (ciclo)
+    const nextIndex = (selectedCameraIndex + 1) % availableCameras.length;
+    setSelectedCameraIndex(nextIndex);
+    
+    console.log('🔄 Trocando para câmera:', availableCameras[nextIndex]?.label || 'Desconhecida');
+    
+    // Reinicia com nova câmera após pequeno delay
+    setTimeout(() => {
+      startCamera();
+    }, 300);
   };
 
   const processQRCode = async (qrData: string) => {
@@ -412,6 +533,11 @@ export default function QRScannerPage() {
                         <Zap className="h-4 w-4 inline mr-1" />
                         Scanner Ativo
                       </div>
+                      {availableCameras.length > 0 && (
+                        <div className="absolute bottom-4 left-4 bg-black/70 text-white px-3 py-1 rounded text-xs">
+                          📹 {availableCameras[selectedCameraIndex]?.label || `Câmera ${selectedCameraIndex + 1}`}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -424,9 +550,21 @@ export default function QRScannerPage() {
                       Iniciar Scanner
                     </Button>
                   ) : (
-                    <Button onClick={stopCamera} variant="outline" className="flex-1" size="lg">
-                      Parar Scanner
-                    </Button>
+                    <>
+                      <Button onClick={stopCamera} variant="outline" className="flex-1" size="lg">
+                        Parar Scanner
+                      </Button>
+                      {availableCameras.length > 1 && (
+                        <Button 
+                          onClick={switchCamera} 
+                          variant="outline" 
+                          size="lg"
+                          title="Trocar câmera"
+                        >
+                          🔄 Trocar
+                        </Button>
+                      )}
+                    </>
                   )}
                 </div>
 

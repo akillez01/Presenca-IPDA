@@ -35,7 +35,7 @@ const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyA6_YWMcTzvKzCbZgl88SJvWpAUuE8LilE",
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "reuniao-ministerial.firebaseapp.com",
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "reuniao-ministerial",
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "reuniao-ministerial.appspot.com",
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "reuniao-ministerial.firebasestorage.app",
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "23562502277",
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:23562502277:web:ad150c66054fe08241e9ec",
   // Só incluir measurementId se estiver definido (produção) e não for mobile

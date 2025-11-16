@@ -2,17 +2,17 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-    Building,
-    Calendar,
-    Clock,
-    Fingerprint,
-    Loader2,
-    Map,
-    MapPin,
-    Send,
-    User,
-    UserCog,
-    UserSquare
+  Building,
+  Calendar,
+  Clock,
+  Fingerprint,
+  Loader2,
+  Map,
+  MapPin,
+  Send,
+  User,
+  UserCog,
+  UserSquare
 } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -21,21 +21,21 @@ import { PhotoCaptureField } from "@/components/attendance/photo-capture-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-    Form,
-    FormControl,
-    FormField,
-    FormItem,
-    FormLabel,
-    FormMessage,
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { useSystemConfig } from "@/hooks/use-realtime";
 import { useToast } from "@/hooks/use-toast";
@@ -173,7 +173,7 @@ function AttendanceFormContent() {
     setIsSubmitting(true);
     setSuccess(null);
     setError(null);
-    let uploadedPhoto: { downloadURL: string; storagePath: string } | null = null;
+    let uploadedPhoto: { downloadURL: string; storagePath: string; isLocal?: boolean } | null = null;
     try {
       // Normaliza o valor do cargo para garantir que 'regente' seja convertido para 'Regente'
       // Lista de cargos válidos exatamente como no enum
@@ -218,23 +218,67 @@ function AttendanceFormContent() {
         photoUrl: undefined
       };
 
+      // Upload de foto (se houver)
       if (photoSelection?.file || photoSelection?.dataUrl) {
+        console.log('📸 Foto selecionada detectada');
+        console.log('   - Arquivo:', photoSelection?.file ? 'SIM' : 'NÃO');
+        console.log('   - DataURL:', photoSelection?.dataUrl ? 'SIM' : 'NÃO');
+        
+        setIsUploadingPhoto(true);
         try {
-          setIsUploadingPhoto(true);
           uploadedPhoto = await uploadAttendancePhoto({
-            cpf: values.cpf,
+            cpf: String(values.cpf ?? '').replace(/\D/g, ''),
             file: photoSelection?.file,
             dataUrl: photoSelection?.dataUrl ?? undefined
           });
+          
           normalizedValues.photoUrl = uploadedPhoto.downloadURL;
+          console.log('✅ Upload concluído!');
+          console.log('   - photoUrl definido:', normalizedValues.photoUrl ? 'SIM' : 'NÃO');
+          console.log('   - Tamanho:', normalizedValues.photoUrl ? Math.round(normalizedValues.photoUrl.length / 1024) + ' KB' : 'N/A');
+          
+          if (uploadedPhoto.isLocal) {
+            console.log('💾 Modo: BASE64 (armazenamento local)');
+            toast({
+              title: "✅ Foto anexada",
+              description: "A foto foi salva no cadastro (modo base64)",
+              variant: "default"
+            });
+          } else {
+            console.log('☁️ Modo: Firebase Storage');
+            toast({
+              title: "✅ Foto enviada",
+              description: "A foto foi salva no Firebase Storage",
+              variant: "default"
+            });
+          }
         } catch (photoError) {
-          console.error('❌ Erro ao enviar foto:', photoError);
-          setError('Não foi possível enviar a foto. Verifique a conexão e tente novamente.');
-          return;
+          console.error('❌ Erro ao processar foto:', photoError);
+          console.warn('⚠️ Prosseguindo com cadastro sem foto');
+          normalizedValues.photoUrl = null;
+          toast({
+            title: "⚠️ Aviso",
+            description: "Não foi possível salvar a foto. O cadastro será feito sem foto.",
+            variant: "destructive"
+          });
         } finally {
           setIsUploadingPhoto(false);
         }
+      } else {
+        console.log('ℹ️ Nenhuma foto selecionada');
+        normalizedValues.photoUrl = null;
       }
+
+      // Log final antes de enviar para o servidor
+      console.log('🚀 Enviando dados para o servidor...');
+      console.log('📋 Objeto normalizedValues:', {
+        ...normalizedValues,
+        photoUrl: normalizedValues.photoUrl ? 
+          (normalizedValues.photoUrl.startsWith('data:') ? 
+            `BASE64 (${Math.round(normalizedValues.photoUrl.length / 1024)} KB)` : 
+            normalizedValues.photoUrl) : 
+          'null'
+      });
 
       const result = await addAttendance(normalizedValues);
       if (result.success) {
@@ -428,10 +472,10 @@ function AttendanceFormContent() {
 
 export default function AttendanceFormPage() {
   return (
-    <main className="min-h-screen flex items-center justify-center bg-background p-2 sm:p-4">
+    <div className="min-h-screen flex items-center justify-center p-2 sm:p-4">
       <div className="w-full max-w-2xl mx-auto flex flex-col items-center gap-4 sm:gap-8">
         <AttendanceFormContent />
       </div>
-    </main>
+    </div>
   );
 }

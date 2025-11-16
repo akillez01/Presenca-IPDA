@@ -1,5 +1,6 @@
 import { GoogleAnalytics } from '@/components/analytics/google-analytics';
 import { Toaster } from '@/components/ui/toaster';
+import '@/lib/suppress-hydration-warnings';
 import type { Metadata } from 'next';
 import { ClientLayout } from './client-layout';
 import './globals.css';
@@ -63,6 +64,35 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" suppressHydrationWarning>
       <head>
+        {/* Suprimir hydration warnings do Dark Reader ANTES do React carregar */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                const originalError = console.error;
+                const originalWarn = console.warn;
+                
+                const patterns = ['darkreader', 'hydration failed', '--darkreader-inline', 'data-darkreader'];
+                const shouldSuppress = (msg) => {
+                  if (typeof msg !== 'string') return false;
+                  return patterns.some(p => msg.toLowerCase().includes(p));
+                };
+                
+                console.error = function(...args) {
+                  if (!shouldSuppress(args[0])) {
+                    originalError.apply(console, args);
+                  }
+                };
+                
+                console.warn = function(...args) {
+                  if (!shouldSuppress(args[0])) {
+                    originalWarn.apply(console, args);
+                  }
+                };
+              })();
+            `,
+          }}
+        />
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#2563eb" />

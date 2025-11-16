@@ -162,8 +162,8 @@ export async function addAttendance(data: AttendanceFormValues) {
     
     console.log(`✅ CPF ${cleanCpf} liberado para registro (${cpfSnapshot.size} registros históricos, nenhum de hoje)`);
     
-    // Insere no Firestore
-    const createdId = await addPresenca({
+    // Log dos dados antes de inserir
+    const registroData = {
       fullName: data.fullName,
       cpf: cleanCpf,
       birthday: normalizedBirthday,
@@ -175,9 +175,21 @@ export async function addAttendance(data: AttendanceFormValues) {
       shift: normalizedShift,
       status: normalizedStatus,
       photoUrl: data.photoUrl ?? null
-    });
+    };
     
-    console.log(`✅ Registro criado com sucesso para ${data.fullName} (CPF: ${data.cpf})`);
+    console.log('📝 Dados do registro a serem salvos:');
+    console.log('   - Nome:', registroData.fullName);
+    console.log('   - CPF:', registroData.cpf);
+    console.log('   - Photo URL presente?', registroData.photoUrl ? 'SIM ✅' : 'NÃO ❌');
+    if (registroData.photoUrl) {
+      console.log('   - Photo URL tipo:', registroData.photoUrl.startsWith('data:') ? 'BASE64' : 'URL');
+      console.log('   - Photo URL tamanho:', Math.round(registroData.photoUrl.length / 1024), 'KB');
+    }
+    
+    // Insere no Firestore
+    const createdId = await addPresenca(registroData);
+    
+    console.log(`✅ Registro criado com sucesso para ${data.fullName} (CPF: ${data.cpf}) - ID: ${createdId}`);
     return { success: true, id: createdId };
   } catch (e) {
     console.error("❌ Error adding document: ", e);
@@ -276,7 +288,25 @@ export async function getTodayAttendance() {
 // Função para excluir um registro de presença
 export async function deleteAttendance(id: string) {
   try {
-    await deleteAttendanceRecord(id);
+    // Deletar documento e receber URL da foto (se existir)
+    const { photoUrl } = await deleteAttendanceRecord(id);
+    
+    // Se tinha foto, deletar do Storage
+    if (photoUrl) {
+      try {
+        const { getStoragePathFromUrl, deleteAttendancePhoto } = await import('@/lib/attendance-photo');
+        const storagePath = getStoragePathFromUrl(photoUrl);
+        
+        if (storagePath) {
+          await deleteAttendancePhoto(storagePath);
+          console.log('🗑️ Foto excluída do Storage:', storagePath);
+        }
+      } catch (photoError) {
+        console.warn('⚠️ Erro ao excluir foto, mas registro foi deletado:', photoError);
+        // Continua mesmo se falhar ao deletar a foto
+      }
+    }
+    
     return { success: true };
   } catch (e) {
     console.error("Error deleting document: ", e);

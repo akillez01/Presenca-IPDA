@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verificar Permissões Admin</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      border-radius: 8px;
+      padding: 30px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      border-bottom: 3px solid #4CAF50;
+      padding-bottom: 10px;
+    }
+    .status {
+      padding: 15px;
+      border-radius: 6px;
+      margin: 15px 0;
+    }
+    .success { background: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+    .warning { background: #fff3cd; color: #856404; border-left: 4px solid #ffc107; }
+    .error { background: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; }
+    .info { background: #d1ecf1; color: #0c5460; border-left: 4px solid #17a2b8; }
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 5px;
+    }
+    button:hover { background: #45a049; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    button.fix { background: #FF9800; }
+    button.fix:hover { background: #F57C00; }
+    .user-card {
+      background: #f9f9f9;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 6px;
+      border-left: 4px solid #2196F3;
+    }
+    pre {
+      background: #1e1e1e;
+      color: #00ff00;
+      padding: 15px;
+      border-radius: 6px;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔐 Verificação de Permissões Admin</h1>
+    
+    <div class="info">
+      <strong>📝 Esta ferramenta verifica:</strong>
+      <ul>
+        <li>Se você está autenticado como admin</li>
+        <li>Suas permissões no Firestore</li>
+        <li>Configuração do documento de usuário</li>
+        <li>Se pode corrigir automaticamente</li>
+      </ul>
+    </div>
+
+    <div style="text-align: center; margin: 20px 0;">
+      <button onclick="checkPermissions()" id="checkBtn">🔍 Verificar Minhas Permissões</button>
+      <button onclick="fixPermissions()" id="fixBtn" class="fix" style="display:none;">🔧 Corrigir Permissões</button>
+    </div>
+
+    <div id="results"></div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+    import { getFirestore, doc, getDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+    import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyA6_YWMcTzvKzCbZgl88SJvWpAUuE8LilE",
+      authDomain: "reuniao-ministerial.firebaseapp.com",
+      projectId: "reuniao-ministerial",
+      storageBucket: "reuniao-ministerial.appspot.com",
+      messagingSenderId: "23562502277",
+      appId: "1:23562502277:web:ad150c66054fe08241e9ec"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    let currentUserData = null;
+
+    // Monitora autenticação
+    onAuthStateChanged(auth, (user) => {
+      const checkBtn = document.getElementById('checkBtn');
+      if (user) {
+        checkBtn.disabled = false;
+        checkBtn.textContent = `🔍 Verificar Permissões (${user.email})`;
+      } else {
+        checkBtn.disabled = true;
+        checkBtn.textContent = '🔒 Faça login primeiro';
+      }
+    });
+
+    window.checkPermissions = async function() {
+      if (!auth.currentUser) {
+        alert('❌ Você precisa estar autenticado!\n\nFaça login em /login primeiro.');
+        window.open('/login', '_blank');
+        return;
+      }
+
+      const resultsDiv = document.getElementById('results');
+      const fixBtn = document.getElementById('fixBtn');
+      resultsDiv.innerHTML = '<div class="info">🔍 Verificando...</div>';
+
+      try {
+        const user = auth.currentUser;
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDocSnap = await getDoc(userDocRef);
+
+        let html = '';
+        html += '<div class="user-card">';
+        html += `<h3>👤 Usuário Atual</h3>`;
+        html += `<p><strong>Email:</strong> ${user.email}</p>`;
+        html += `<p><strong>UID:</strong> ${user.uid}</p>`;
+        html += `<p><strong>Email Verificado:</strong> ${user.emailVerified ? '✅ Sim' : '❌ Não'}</p>`;
+        html += '</div>';
+
+        if (userDocSnap.exists()) {
+          const userData = userDocSnap.data();
+          currentUserData = userData;
+
+          html += '<div class="success">';
+          html += '<h3>✅ Documento encontrado no Firestore</h3>';
+          html += '<pre>' + JSON.stringify(userData, null, 2) + '</pre>';
+          html += '</div>';
+
+          // Verificar permissões esperadas para admin
+          const expectedPermissions = {
+            userType: 'SUPER_USER',
+            role: 'super',
+            permissions: [
+              'dashboard',
+              'register',
+              'reports',
+              'admin_users',
+              'config',
+              'monitoring',
+              'presencadecadastrados',
+              'letters'
+            ]
+          };
+
+          const issues = [];
+
+          if (userData.userType !== expectedPermissions.userType) {
+            issues.push(`userType: "${userData.userType}" (esperado: "${expectedPermissions.userType}")`);
+          }
+
+          if (userData.role !== expectedPermissions.role) {
+            issues.push(`role: "${userData.role}" (esperado: "${expectedPermissions.role}")`);
+          }
+
+          const userPerms = Array.isArray(userData.permissions) ? userData.permissions : [];
+          const missingPerms = expectedPermissions.permissions.filter(p => !userPerms.includes(p));
+          
+          if (missingPerms.length > 0) {
+            issues.push(`permissões faltando: ${missingPerms.join(', ')}`);
+          }
+
+          if (issues.length > 0) {
+            html += '<div class="warning">';
+            html += '<h3>⚠️ Problemas Encontrados:</h3>';
+            html += '<ul>';
+            issues.forEach(issue => {
+              html += `<li>${issue}</li>`;
+            });
+            html += '</ul>';
+            html += '</div>';
+
+            html += '<div class="info">';
+            html += '<h3>🔧 Correções Necessárias:</h3>';
+            html += '<pre>' + JSON.stringify(expectedPermissions, null, 2) + '</pre>';
+            html += '</div>';
+
+            fixBtn.style.display = 'inline-block';
+          } else {
+            html += '<div class="success">';
+            html += '<h3>🎉 Tudo certo!</h3>';
+            html += '<p>Suas permissões estão configuradas corretamente.</p>';
+            html += '</div>';
+            fixBtn.style.display = 'none';
+          }
+
+        } else {
+          html += '<div class="error">';
+          html += '<h3>❌ Documento não encontrado!</h3>';
+          html += '<p>Seu usuário não tem um documento no Firestore.</p>';
+          html += '<p>Isso precisa ser criado para o sistema funcionar corretamente.</p>';
+          html += '</div>';
+
+          fixBtn.style.display = 'inline-block';
+        }
+
+        resultsDiv.innerHTML = html;
+
+      } catch (error) {
+        resultsDiv.innerHTML = `<div class="error"><strong>❌ Erro:</strong> ${error.message}</div>`;
+        console.error('Erro:', error);
+      }
+    };
+
+    window.fixPermissions = async function() {
+      if (!auth.currentUser) {
+        alert('❌ Você não está autenticado!');
+        return;
+      }
+
+      if (!confirm('🔧 Deseja corrigir as permissões do seu usuário?\n\nIsso irá configurar seu perfil como Super Admin com todas as permissões.')) {
+        return;
+      }
+
+      const resultsDiv = document.getElementById('results');
+      resultsDiv.innerHTML = '<div class="info">🔧 Corrigindo permissões...</div>';
+
+      try {
+        const user = auth.currentUser;
+        const userDocRef = doc(db, 'users', user.uid);
+
+        const correctPermissions = {
+          userType: 'SUPER_USER',
+          role: 'super',
+          permissions: [
+            'dashboard',
+            'register',
+            'reports',
+            'admin_users',
+            'config',
+            'monitoring',
+            'presencadecadastrados',
+            'letters'
+          ],
+          email: user.email,
+          displayName: user.displayName || user.email,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          active: true
+        };
+
+        await setDoc(userDocRef, correctPermissions, { merge: true });
+
+        resultsDiv.innerHTML = `
+          <div class="success">
+            <h3>✅ Permissões corrigidas com sucesso!</h3>
+            <p>Seu usuário agora está configurado como Super Admin.</p>
+            <p><strong>⚠️ IMPORTANTE:</strong> Faça logout e login novamente para aplicar as mudanças.</p>
+            <pre>${JSON.stringify(correctPermissions, null, 2)}</pre>
+          </div>
+          <div class="info">
+            <h3>📝 Próximos Passos:</h3>
+            <ol>
+              <li>Faça logout do sistema</li>
+              <li>Faça login novamente com ${user.email}</li>
+              <li>Acesse o dashboard - agora deve funcionar completamente!</li>
+            </ol>
+          </div>
+        `;
+
+        // Esconde botão de corrigir
+        document.getElementById('fixBtn').style.display = 'none';
+
+      } catch (error) {
+        resultsDiv.innerHTML = `<div class="error"><strong>❌ Erro ao corrigir:</strong> ${error.message}</div>`;
+        console.error('Erro:', error);
+      }
+    };
+  </script>
+</body>
+</html>
