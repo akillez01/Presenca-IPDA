@@ -15,28 +15,28 @@ Foram criados **4 novos usuários** para trabalhar junto com o usuário principa
 ### Terminal 1
 
 - **Email:** `registro1@ipda.app.br`
-- **Senha:** `Terminal@2025#1`
+- **Senha:** definida em `credentials.local.json`
 - **Nome:** Terminal de Registro 1 - IPDA
 - **UID:** `98l6DvgoMYXasS8gdCTwyQBrZK83`
 
 ### Terminal 2
 
 - **Email:** `registro2@ipda.app.br`
-- **Senha:** `Terminal@2025#2`
+- **Senha:** definida em `credentials.local.json`
 - **Nome:** Terminal de Registro 2 - IPDA
 - **UID:** `PZjZJsKQYIVTLum7s1hjSnat14l2`
 
 ### Terminal 3
 
 - **Email:** `registro3@ipda.app.br`
-- **Senha:** `Terminal@2025#3`
+- **Senha:** definida em `credentials.local.json`
 - **Nome:** Terminal de Registro 3 - IPDA
 - **UID:** `yGObE70XYtOivfkGJMuU09PLemV2`
 
 ### Terminal 4
 
 - **Email:** `registro4@ipda.app.br`
-- **Senha:** `Terminal@2025#4`
+- **Senha:** definida em `credentials.local.json`
 - **Nome:** Terminal de Registro 4 - IPDA
 - **UID:** `z6MK40q58jhk0ezbqbvwFyCcsS93`
 

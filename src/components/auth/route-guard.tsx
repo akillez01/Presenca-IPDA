@@ -2,6 +2,7 @@
 
 import { useAuth } from '@/hooks/use-auth';
 import { getUserType, UserType } from '@/lib/auth';
+import { NavigationPermission } from '@/lib/user-access';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
@@ -11,7 +12,7 @@ interface RoutePermission {
   path: string;
   allowedUserTypes: (UserType | string)[];
   allowedRoles?: string[]; // Adicionar suporte para roles do Firestore
-  allowedPermissions?: string[];
+  allowedPermissions?: NavigationPermission[];
   redirectPath?: string;
 }
 
@@ -43,8 +44,8 @@ export const ROUTE_PERMISSIONS: RoutePermission[] = [
   // Rotas para usuários básicos, editores e super usuários
   {
     path: '/',
-    allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
-    allowedRoles: ['basic_user', 'user', 'editor', 'admin', 'super'],
+    allowedUserTypes: [UserType.BASIC_USER, UserType.BAPTISM_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
+    allowedRoles: ['basic_user', 'baptism_user', 'user', 'editor', 'admin', 'super'],
     allowedPermissions: ['dashboard']
   },
   {
@@ -70,8 +71,50 @@ export const ROUTE_PERMISSIONS: RoutePermission[] = [
     allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
     allowedRoles: ['basic_user', 'user', 'editor', 'admin', 'super'],
     allowedPermissions: ['letters']
-  }
+  },
+  {
+    path: '/batismo',
+    allowedUserTypes: [UserType.BASIC_USER, UserType.BAPTISM_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
+    allowedRoles: ['basic_user', 'baptism_user', 'user', 'editor', 'admin', 'super'],
+    allowedPermissions: ['baptism']
+  },
+  {
+    path: '/scanner',
+    allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
+    allowedRoles: ['basic_user', 'user', 'editor', 'admin', 'super'],
+    allowedPermissions: ['scanner']
+  },
 ];
+
+function hasRouteAccess(
+  routePermission: RoutePermission,
+  userType: UserType | string,
+  userRole: string,
+  userPermissions: string[]
+) {
+  if (
+    userType === UserType.SUPER_USER ||
+    userType === 'ADMIN_USER' ||
+    userRole === 'admin' ||
+    userRole === 'super'
+  ) {
+    return true;
+  }
+
+  const normalizedPermissions = Array.isArray(userPermissions) ? userPermissions : [];
+
+  if (normalizedPermissions.length > 0 && routePermission.allowedPermissions?.length) {
+    return routePermission.allowedPermissions.some((permission) => normalizedPermissions.includes(permission));
+  }
+
+  const hasUserTypePermission = routePermission.allowedUserTypes.includes(userType);
+  const hasRolePermission = routePermission.allowedRoles?.includes(userRole) || false;
+  const hasPermissionClaim = routePermission.allowedPermissions
+    ? routePermission.allowedPermissions.some((permission) => normalizedPermissions.includes(permission))
+    : false;
+
+  return hasUserTypePermission || hasRolePermission || hasPermissionClaim;
+}
 
 interface RouteGuardProps {
   children: React.ReactNode;
@@ -121,12 +164,9 @@ export function RouteGuard({ children, currentPath }: RouteGuardProps) {
       }
 
       // Verificar se o tipo de usuário OU role tem permissão
-      const hasUserTypePermission = routePermission.allowedUserTypes.includes(userType);
-      const hasRolePermission = routePermission.allowedRoles?.includes(userRole) || false;
-      const hasPermissionClaim = routePermission.allowedPermissions ?
-        routePermission.allowedPermissions.some(permission => userPermissions.includes(permission)) : false;
+      const hasAccess = hasRouteAccess(routePermission, userType, userRole, userPermissions);
 
-      if (!hasUserTypePermission && !hasRolePermission && !hasPermissionClaim) {
+      if (!hasAccess) {
         if (DEBUG) console.log('❌ Acesso negado - nem tipo de usuário nem role permitidos');
         
         // Evitar loop infinito ao redirecionar para a página inicial
@@ -140,7 +180,7 @@ export function RouteGuard({ children, currentPath }: RouteGuardProps) {
         router.push(redirectPath);
         return;
       } else {
-        if (DEBUG) console.log('✅ Acesso permitido', { hasUserTypePermission, hasRolePermission, hasPermissionClaim });
+        if (DEBUG) console.log('✅ Acesso permitido', { hasAccess, userPermissions });
       }
     }
   }, [user, loading, currentPath, router]);
@@ -175,9 +215,7 @@ export function RouteGuard({ children, currentPath }: RouteGuardProps) {
       userType,
       userRole,
       routePermission,
-      hasUserTypePermission: routePermission ? routePermission.allowedUserTypes.includes(userType) : true,
-      hasRolePermission: routePermission ? routePermission.allowedRoles?.includes(userRole) : true,
-      hasPermissionClaim: routePermission?.allowedPermissions ? routePermission.allowedPermissions.some(permission => userPermissions.includes(permission)) : true
+      hasAccess: routePermission ? hasRouteAccess(routePermission, userType, userRole, userPermissions) : true
     });
   }
 
@@ -187,11 +225,9 @@ export function RouteGuard({ children, currentPath }: RouteGuardProps) {
   }
 
   // Verificar se o tipo de usuário OU role tem permissão
-  const hasUserTypePermission = routePermission.allowedUserTypes.includes(userType);
-  const hasRolePermission = routePermission.allowedRoles?.includes(userRole) || false;
-  const hasPermissionClaim = routePermission.allowedPermissions ? routePermission.allowedPermissions.some(permission => userPermissions.includes(permission)) : false;
+  const hasAccess = hasRouteAccess(routePermission, userType, userRole, userPermissions);
 
-  if (!hasUserTypePermission && !hasRolePermission && !hasPermissionClaim) {
+  if (!hasAccess) {
   if (DEBUG) console.log('❌ Renderizando Acesso Negado');
     
     // Se estiver na página inicial e não tiver permissão, isso é um problema de configuração
@@ -238,9 +274,5 @@ export function useRoutePermission(path: string) {
 
   if (!routePermission) return true;
   
-  const hasUserTypePermission = routePermission.allowedUserTypes.includes(userType);
-  const hasRolePermission = routePermission.allowedRoles?.includes(userRole) || false;
-  const hasPermissionClaim = routePermission.allowedPermissions ? routePermission.allowedPermissions.some(permission => userPermissions.includes(permission)) : false;
-  
-  return hasUserTypePermission || hasRolePermission || hasPermissionClaim;
+  return hasRouteAccess(routePermission, userType, userRole, userPermissions);
 }

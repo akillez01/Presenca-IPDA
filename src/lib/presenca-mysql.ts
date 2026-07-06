@@ -7,29 +7,19 @@ export async function getDashboardPrincipal(): Promise<{
   totalHoje: number;
   totalGeral: number;
 }> {
-  // Calcula início e fim do dia em America/Manaus
-  const nowManaus = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Manaus' }));
-  const inicioManaus = new Date(Date.UTC(nowManaus.getFullYear(), nowManaus.getMonth(), nowManaus.getDate(), 0, 0, 0));
-  const fimManaus = new Date(Date.UTC(nowManaus.getFullYear(), nowManaus.getMonth(), nowManaus.getDate(), 23, 59, 59, 999));
-  // Busca registros de hoje
-  const qHoje = query(
-    collection(db, "attendance"),
-    where("createdAt", ">=", Timestamp.fromDate(inicioManaus)),
-    where("createdAt", "<=", Timestamp.fromDate(fimManaus))
-  );
-  const snapshotHoje = await getDocs(qHoje);
+  const nowManaus = new Date(new Date().toLocaleString("en-US", { timeZone: MANAUS_TIME_ZONE }));
+  const presencasHoje = await getPresencasByDateRange(nowManaus, nowManaus);
   let presentesHoje = 0, justificadosHoje = 0, ausentesHoje = 0;
-  snapshotHoje.docs.forEach(doc => {
-    const data = doc.data();
-    if (data.status === "Presente") presentesHoje++;
-    else if (data.status === "Justificado") justificadosHoje++;
-    else if (data.status === "Ausente") ausentesHoje++;
+  presencasHoje.forEach((presenca) => {
+    if (presenca.status === "Presente") presentesHoje++;
+    else if (presenca.status === "Justificado") justificadosHoje++;
+    else if (presenca.status === "Ausente") ausentesHoje++;
   });
-  const totalHoje = snapshotHoje.docs.length;
+  const totalHoje = presencasHoje.length;
   const taxaPresencaHoje = totalHoje > 0 ? Math.round((presentesHoje / totalHoje) * 10000) / 100 : 0;
   // Busca total geral
-  const snapshotGeral = await getDocs(collection(db, "attendance"));
-  const totalGeral = snapshotGeral.docs.length;
+  const countSnapshot = await getCountFromServer(collection(db, "attendance"));
+  const totalGeral = countSnapshot.data().count;
   return {
     presentesHoje,
     justificadosHoje,
@@ -48,67 +38,17 @@ export async function getResumoUltimos7Dias(): Promise<Array<{
   ausentes: number;
   porcentagem: number;
 }>> {
-  // Calcula início e fim dos últimos 7 dias em America/Manaus
-  const nowManaus = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Manaus' }));
-  const inicio = new Date(Date.UTC(nowManaus.getFullYear(), nowManaus.getMonth(), nowManaus.getDate()-6, 0, 0, 0));
+  const nowManaus = new Date(new Date().toLocaleString("en-US", { timeZone: MANAUS_TIME_ZONE }));
+  const inicio = new Date(Date.UTC(nowManaus.getFullYear(), nowManaus.getMonth(), nowManaus.getDate() - 6, 0, 0, 0));
   const fim = new Date(Date.UTC(nowManaus.getFullYear(), nowManaus.getMonth(), nowManaus.getDate(), 23, 59, 59, 999));
-  const q = query(
-    collection(db, "attendance"),
-    where("createdAt", ">=", Timestamp.fromDate(inicio)),
-    where("createdAt", "<=", Timestamp.fromDate(fim))
-  );
-  const snapshot = await getDocs(q);
-  // Monta array de presenças
-  const presencas: Presenca[] = snapshot.docs.map(doc => {
-    const data = doc.data();
-    let createdAt: Date = new Date();
-    if (data.createdAt) {
-      if (typeof data.createdAt.toDate === "function") {
-        createdAt = data.createdAt.toDate();
-      } else if (data.createdAt instanceof Date) {
-        createdAt = data.createdAt;
-      } else if (typeof data.createdAt === "number") {
-        createdAt = new Date(data.createdAt);
-      } else if (typeof data.createdAt === "string") {
-        const d = new Date(data.createdAt);
-        if (!isNaN(d.getTime())) createdAt = d;
-      }
-    }
-    return {
-      id: doc.id,
-      timestamp: createdAt,
-      fullName: data.fullName ?? "",
-      cpf: data.cpf ?? "",
-      birthday: data.birthday ?? "",
-      reclassification: data.reclassification ?? "",
-      pastorName: data.pastorName ?? "",
-      region: data.region ?? "",
-      churchPosition: data.churchPosition ?? "",
-      city: data.city ?? "",
-      shift: data.shift ?? "",
-      status: data.status ?? "",
-      createdAt,
-    };
-  });
-  // Usa função utilitária para agrupar por dia
+  const presencas = await getPresencasByDateRange(inicio, fim);
+
   return agruparPresencasPorDia(presencas);
 }
 // Função para retornar o total de presentes do dia atual (UTC)
 export async function getPresentesHoje(): Promise<number> {
-  const hoje = new Date();
-  // UTC: considera o início e fim do dia em UTC
-  const inicioUTC = new Date(Date.UTC(hoje.getFullYear(), hoje.getMonth(), hoje.getDate(), 0, 0, 0));
-  const fimUTC = new Date(Date.UTC(hoje.getFullYear(), hoje.getMonth(), hoje.getDate(), 23, 59, 59, 999));
-  const q = query(
-    collection(db, "attendance"),
-    where("createdAt", ">=", Timestamp.fromDate(inicioUTC)),
-    where("createdAt", "<=", Timestamp.fromDate(fimUTC))
-  );
-  const snapshot = await getDocs(q);
-  return snapshot.docs.filter(doc => {
-    const data = doc.data();
-    return data.status === "Presente";
-  }).length;
+  const presencasHoje = await getPresencasByDateRange(new Date(), new Date());
+  return presencasHoje.filter((presenca) => presenca.status === "Presente").length;
 }
 // Função utilitária para agrupar presenças por dia
 export function agruparPresencasPorDia(presencas: Presenca[]): Array<{
@@ -122,9 +62,10 @@ export function agruparPresencasPorDia(presencas: Presenca[]): Array<{
   // Agrupa por data (YYYY-MM-DD) considerando timezone de Manaus
   const grupos: Record<string, Presenca[]> = {};
   presencas.forEach(p => {
-    if (!p.createdAt) return;
+    const effectiveDate = getEffectiveAttendanceDate(p);
+    if (!effectiveDate) return;
     // Converte para o timezone de Manaus
-    const d = new Date(p.createdAt.toLocaleString('en-US', { timeZone: 'America/Manaus' }));
+    const d = new Date(effectiveDate.toLocaleString('en-US', { timeZone: MANAUS_TIME_ZONE }));
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     if (!grupos[key]) grupos[key] = [];
     grupos[key].push(p);
@@ -139,49 +80,120 @@ export function agruparPresencasPorDia(presencas: Presenca[]): Array<{
     return { data, total, presentes, justificados, ausentes, porcentagem };
   });
 }
-import { collection, deleteDoc, doc, getDoc, getDocs, query, Timestamp, updateDoc, where } from "firebase/firestore";
+import { Timestamp, collection, deleteDoc, doc, getCountFromServer, getDoc, getDocs, limit, orderBy, query, updateDoc, where } from "firebase/firestore";
 import { db } from "./firebase";
 
-// Função utilitária para processar timestamps do Firestore
-function processFirebaseTimestamp(data: any, field: 'timestamp' | 'createdAt'): Date {
+const MANAUS_TIME_ZONE = "America/Manaus";
+
+// Retorna null quando não há data válida — evita poluir filtros de data com "agora"
+function processFirebaseTimestamp(data: any, field: 'timestamp' | 'createdAt'): Date | null {
   const value = data[field];
-  if (!value) return new Date();
-  
+  if (!value) return null;
+
   try {
     if (typeof value.toDate === "function") {
-      return value.toDate();
-    } else if (value instanceof Date) {
-      return value;
-    } else if (typeof value === "number") {
-      return new Date(value);
-    } else if (typeof value === "string") {
-      const d = new Date(value);
-      if (!isNaN(d.getTime())) return d;
+      const d = value.toDate();
+      return d instanceof Date && !isNaN(d.getTime()) ? d : null;
     }
-  } catch (e) {
-    // Se houver erro na conversão, retorna data atual
+    if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+    if (typeof value === "number") {
+      const d = new Date(value);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    if (typeof value === "string") {
+      const d = new Date(value);
+      return isNaN(d.getTime()) ? null : d;
+    }
+  } catch {
+    // timestamp malformado — não propagar
   }
-  
-  return new Date();
+
+  return null;
+}
+
+function getEffectiveAttendanceDate(presenca: Pick<Presenca, "timestamp" | "createdAt">): Date | null {
+  const value = presenca.timestamp ?? presenca.createdAt ?? null;
+  return value instanceof Date && !Number.isNaN(value.getTime()) ? value : null;
+}
+
+function getTimeZoneOffsetMinutes(referenceDate: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    timeZoneName: "shortOffset",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(referenceDate);
+
+  const offsetPart = parts.find((part) => part.type === "timeZoneName")?.value ?? "GMT+0";
+  const match = offsetPart.match(/^GMT([+-])(\d{1,2})(?::?(\d{2}))?$/);
+
+  if (!match) {
+    return 0;
+  }
+
+  const sign = match[1] === "-" ? -1 : 1;
+  const hours = Number(match[2]);
+  const minutes = Number(match[3] ?? 0);
+
+  return sign * (hours * 60 + minutes);
+}
+
+function toUtcFromManausLocal(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  millisecond: number
+) {
+  const utcGuess = new Date(Date.UTC(year, month, day, hour, minute, second, millisecond));
+  const offsetMinutes = getTimeZoneOffsetMinutes(utcGuess, MANAUS_TIME_ZONE);
+
+  return new Date(utcGuess.getTime() - offsetMinutes * 60_000);
+}
+
+function buildManausDayRange(start: Date, end: Date) {
+  const startManaus = new Date(new Date(start).toLocaleString("en-US", { timeZone: MANAUS_TIME_ZONE }));
+  const endManaus = new Date(new Date(end).toLocaleString("en-US", { timeZone: MANAUS_TIME_ZONE }));
+
+  return {
+    startDay: toUtcFromManausLocal(
+      startManaus.getFullYear(),
+      startManaus.getMonth(),
+      startManaus.getDate(),
+      0,
+      0,
+      0,
+      0
+    ),
+    endDay: toUtcFromManausLocal(
+      endManaus.getFullYear(),
+      endManaus.getMonth(),
+      endManaus.getDate(),
+      23,
+      59,
+      59,
+      999
+    ),
+  };
 }
 
 // Função utilitária para mapear documentos do Firestore para o tipo Presenca
 function mapDocumentToPresenca(doc: any): Presenca {
   const data = doc.data();
-  
-  // Prioriza timestamp sobre createdAt para exibir a data mais recente
-  let timestamp: Date;
-  if (data.timestamp) {
-    timestamp = processFirebaseTimestamp(data, 'timestamp');
-  } else {
-    timestamp = processFirebaseTimestamp(data, 'createdAt');
-  }
-  
-  const createdAt = processFirebaseTimestamp(data, 'createdAt');
-  
+
+  // Prioriza timestamp; usa createdAt como fallback; nunca usa "agora" como data de registro
+  const timestamp =
+    processFirebaseTimestamp(data, 'timestamp') ??
+    processFirebaseTimestamp(data, 'createdAt') ??
+    new Date(0); // epoch — indica dado sem data válida, visível nos filtros como 01/01/1970
+
+  const createdAt = processFirebaseTimestamp(data, 'createdAt') ?? timestamp;
+
   return {
     id: doc.id,
-    timestamp: timestamp, // Usa a data mais recente (timestamp ou createdAt)
+    timestamp,
     fullName: data.fullName ?? "",
     cpf: data.cpf ?? "",
     birthday: data.birthday ?? "",
@@ -191,6 +203,8 @@ function mapDocumentToPresenca(doc: any): Presenca {
     churchPosition: data.churchPosition ?? "",
     city: data.city ?? "",
     shift: data.shift ?? "",
+    totvs: data.totvs ?? "",
+    etda: data.etda ?? "",
     status: data.status ?? "",
     absentReason: data.absentReason ?? "",
     photoUrl: data.photoUrl ?? null,
@@ -201,6 +215,26 @@ function mapDocumentToPresenca(doc: any): Presenca {
 // Atualiza o status de presença de um membro pelo id
 export async function updateAttendanceStatus(id: string, status: string, absentReason?: string, timestamp?: Date) {
   const docRef = doc(db, "attendance", id);
+  
+  // ✅ PROTEÇÃO CONTRA DUPLICAÇÃO: Verificar se já foi registrado hoje
+  const docSnapshot = await getDoc(docRef);
+  if (docSnapshot.exists()) {
+    const currentData = docSnapshot.data();
+    const now = new Date();
+    
+    // Verificar se já tem o mesmo status registrado recentemente
+    if (currentData.status === status && currentData.lastUpdated) {
+      const lastUpdate = currentData.lastUpdated.toDate();
+      const diffMinutes = (now.getTime() - lastUpdate.getTime()) / (1000 * 60);
+      
+      // Se foi atualizado com o mesmo status há menos de 5 minutos, bloquear
+      if (diffMinutes < 5) {
+        const nome = currentData.fullName || "pessoa";
+        throw new Error(`❌ ${nome} já tem status "${status}" registrado há ${Math.round(diffMinutes)} minuto(s). Duplicação bloqueada.`);
+      }
+    }
+  }
+  
   const updateData: any = { 
     status,
     lastUpdated: timestamp ? Timestamp.fromDate(timestamp) : Timestamp.now()
@@ -233,8 +267,14 @@ export async function updateAttendanceRecord(id: string, data: Partial<Presenca>
     }
   });
   
-  // Converte timestamp se fornecido
-  if (data.timestamp) {
+  // ✅ PROTEÇÃO: Remove timestamp se não for explicitamente para registrar presença
+  // timestamp só deve ser atualizado via updateAttendanceStatus, não via updateAttendanceRecord
+  if (updateData.timestamp && !data.timestamp) {
+    delete updateData.timestamp;
+  }
+  
+  // Converte timestamp se fornecido EXPLICITAMENTE (para registrar presença)
+  if (data.timestamp && data.timestamp instanceof Date) {
     updateData.timestamp = Timestamp.fromDate(data.timestamp);
   }
   
@@ -253,6 +293,8 @@ export type Presenca = {
   churchPosition: string;
   city: string;
   shift: string;
+  totvs?: string;
+  etda?: string;
   status: string;
   absentReason?: string; // Motivo da falta/justificativa
   createdAt?: Date;
@@ -264,26 +306,45 @@ export async function getPresencas(): Promise<Presenca[]> {
   return snapshot.docs.map(mapDocumentToPresenca);
 }
 
-export async function addPresenca(data: Omit<Presenca, 'id' | 'timestamp' | 'createdAt'>) {
-  const { addDoc } = await import("firebase/firestore");
-  // Garante que o campo timestamp seja preenchido corretamente
-  const now = new Date();
-  
+// @deprecated — use registerAttendanceByCpf em actions.ts que garante chave determinística e anti-duplicação por transação.
+export async function addPresenca(
+  data: Omit<Presenca, 'id' | 'timestamp' | 'createdAt'> & {
+    timestamp?: Date;
+    createdAt?: Date;
+    shift?: string;
+    cpf?: string;
+  }
+) {
+  const { setDoc, doc: firestoreDoc, runTransaction } = await import("firebase/firestore");
+
+  const now = data.timestamp ?? data.createdAt ?? new Date();
+  const cleanCpf = (data.cpf ?? '').replace(/\D/g, '');
+  const shift = (data.shift ?? 'Manhã').trim() || 'Manhã';
+
+  // Chave determinística: {data}__{turno}__{cpf}  — impede duplicatas mesmo com ID aleatório
+  const dateKey = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Manaus', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(now);
+  const shiftSlug = shift.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const deterministicId = cleanCpf ? `${dateKey}__${shiftSlug}__${cleanCpf}` : `${dateKey}__${shiftSlug}__${Date.now()}`;
+
+  const docRef = firestoreDoc(db, 'attendance', deterministicId);
+
   const documentData = {
     ...data,
+    attendanceKey: deterministicId,
+    attendanceDateKey: dateKey,
     timestamp: Timestamp.fromDate(now),
     createdAt: Timestamp.fromDate(now),
   };
-  
-  console.log('💾 Salvando no Firestore...');
-  console.log('   - Campos incluídos:', Object.keys(documentData).join(', '));
-  console.log('   - photoUrl no documento?', documentData.photoUrl ? 'SIM ✅' : 'NÃO ❌');
-  
-  const docRef = await addDoc(collection(db, "attendance"), documentData);
-  
-  console.log('✅ Documento salvo no Firestore com ID:', docRef.id);
-  
-  return docRef.id;
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(docRef);
+    if (snap.exists()) return; // já existe — não sobrescreve
+    tx.set(docRef, documentData);
+  });
+
+  return deterministicId;
 }
 
 export async function getAttendance(): Promise<Presenca[]> {
@@ -312,6 +373,8 @@ export async function getAttendance(): Promise<Presenca[]> {
         churchPosition: data.churchPosition ?? "",
         city: data.city ?? "",
         shift: data.shift ?? "",
+        totvs: data.totvs ?? "",
+        etda: data.etda ?? "",
         status: data.status ?? "",
         photoUrl: data.photoUrl ?? null,
         createdAt,
@@ -347,6 +410,8 @@ export async function getPresencaByCpf(cpf: string): Promise<Presenca | null> {
       churchPosition: data.churchPosition ?? "",
       city: data.city ?? "",
       shift: data.shift ?? "",
+      totvs: data.totvs ?? "",
+      etda: data.etda ?? "",
       status: data.status ?? "",
         photoUrl: data.photoUrl ?? null,
       createdAt,
@@ -356,25 +421,24 @@ export async function getPresencaByCpf(cpf: string): Promise<Presenca | null> {
 }
 
 export async function getAllPresencas(): Promise<Presenca[]> {
-  const snapshot = await getDocs(collection(db, "attendance"));
+  const q = query(
+    collection(db, "attendance"),
+    orderBy("timestamp", "desc"),
+    limit(100)
+  );
+  const snapshot = await getDocs(q);
   return snapshot.docs.map(mapDocumentToPresenca);
 }
 
 export async function getPresencasByDateRange(start: Date, end: Date): Promise<Presenca[]> {
-  // Garante que o filtro sempre considera o início e fim do dia em America/Manaus
-  const startManaus = new Date(new Date(start).toLocaleString('en-US', { timeZone: 'America/Manaus' }));
-  const endManaus = new Date(new Date(end).toLocaleString('en-US', { timeZone: 'America/Manaus' }));
-  const startDay = new Date(Date.UTC(startManaus.getFullYear(), startManaus.getMonth(), startManaus.getDate(), 0, 0, 0));
-  const endDay = new Date(Date.UTC(endManaus.getFullYear(), endManaus.getMonth(), endManaus.getDate(), 23, 59, 59, 999));
+  const { startDay, endDay } = buildManausDayRange(start, end);
   const q = query(
     collection(db, "attendance"),
-    where("createdAt", ">=", Timestamp.fromDate(startDay)),
-    where("createdAt", "<=", Timestamp.fromDate(endDay))
+    where("timestamp", ">=", Timestamp.fromDate(startDay)),
+    where("timestamp", "<=", Timestamp.fromDate(endDay))
   );
   const snapshot = await getDocs(q);
-  return snapshot.docs
-    .map(mapDocumentToPresenca)
-    .filter((p: Presenca) => p.createdAt && p.createdAt instanceof Date);
+  return snapshot.docs.map(mapDocumentToPresenca);
 }
 
 // Nova função para filtrar por status específico
@@ -386,19 +450,8 @@ export async function getPresencasByStatus(status: string): Promise<Presenca[]> 
 
 // Nova função para filtrar por status e data
 export async function getPresencasByStatusAndDate(status: string, start: Date, end: Date): Promise<Presenca[]> {
-  const startManaus = new Date(new Date(start).toLocaleString('en-US', { timeZone: 'America/Manaus' }));
-  const endManaus = new Date(new Date(end).toLocaleString('en-US', { timeZone: 'America/Manaus' }));
-  const startDay = new Date(Date.UTC(startManaus.getFullYear(), startManaus.getMonth(), startManaus.getDate(), 0, 0, 0));
-  const endDay = new Date(Date.UTC(endManaus.getFullYear(), endManaus.getMonth(), endManaus.getDate(), 23, 59, 59, 999));
-  
-  const q = query(
-    collection(db, "attendance"),
-    where("status", "==", status),
-    where("createdAt", ">=", Timestamp.fromDate(startDay)),
-    where("createdAt", "<=", Timestamp.fromDate(endDay))
-  );
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(mapDocumentToPresenca);
+  const presencas = await getPresencasByDateRange(start, end);
+  return presencas.filter((presenca) => presenca.status === status);
 }
 
 export async function getPresencasByRegion(region: string): Promise<Presenca[]> {

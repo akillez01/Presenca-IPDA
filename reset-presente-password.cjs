@@ -1,28 +1,41 @@
 const admin = require('firebase-admin');
+const {
+  loadCredentials,
+  getFirebaseAdminConfig,
+  getFirebaseClientConfig,
+  getUserByKey,
+} = require('./credentials-loader.cjs');
+
+const credentials = loadCredentials();
+const firebaseAdminConfig = getFirebaseAdminConfig(credentials);
+const firebaseClientConfig = getFirebaseClientConfig(credentials);
+const presenteUser = getUserByKey(credentials, 'presente');
 
 // Inicializar Firebase Admin
-const serviceAccount = require('./reuniao-ministerial-firebase-adminsdk-fbsvc-abbe4123aa.json');
+const serviceAccount = require(firebaseAdminConfig.serviceAccountPath);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://reuniao-ministerial-default-rtdb.firebaseio.com"
+  ...(firebaseAdminConfig.projectId ? { projectId: firebaseAdminConfig.projectId } : {}),
+  ...(firebaseAdminConfig.databaseURL ? { databaseURL: firebaseAdminConfig.databaseURL } : {}),
 });
 
 async function resetPassword() {
   try {
-    console.log('🔐 Resetando senha do usuário presente@ipda.app.br...\n');
+    console.log(`🔐 Resetando senha do usuário ${presenteUser.email}...\n`);
     
-    const email = 'presente@ipda.app.br';
-    const newPassword = 'presente@2025';
+    const email = presenteUser.email;
+    const newPassword = presenteUser.password;
     
     // Atualizar a senha do usuário
-    await admin.auth().updateUser('h9jGbyblHYXGMy52z6aDoKvWMeA3', {
+    const targetUid = presenteUser.uid || (await admin.auth().getUserByEmail(email)).uid;
+    await admin.auth().updateUser(targetUid, {
       password: newPassword
     });
     
     console.log('✅ Senha atualizada com sucesso!');
     console.log('📧 Email:', email);
-    console.log('🔑 Nova senha:', newPassword);
+    console.log('🔑 Nova senha: valor ocultado (veja credentials.local.json)');
     
     console.log('\n🧪 Testando login com as novas credenciais...');
     
@@ -31,16 +44,7 @@ async function resetPassword() {
     const { getAuth, signInWithEmailAndPassword } = require('firebase/auth');
     
     // Configuração Firebase (from .env.local)
-    const firebaseConfig = {
-      apiKey: "AIzaSyA6_YWMcTzvKzCbZgl88SJvWpAUuE8LilE",
-      authDomain: "reuniao-ministerial.firebaseapp.com",
-      databaseURL: "https://reuniao-ministerial-default-rtdb.firebaseio.com",
-      projectId: "reuniao-ministerial",
-      storageBucket: "reuniao-ministerial.firebasestorage.app",
-      messagingSenderId: "473014896779",
-      appId: "1:473014896779:web:b8f4e5c6f8d93c8f4c8c32",
-      measurementId: "G-B54Z76MVDX"
-    };
+    const firebaseConfig = firebaseClientConfig;
     
     const app = initializeApp(firebaseConfig, 'test-app-' + Date.now());
     const auth = getAuth(app);

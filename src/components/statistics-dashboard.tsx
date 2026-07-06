@@ -52,7 +52,12 @@ export function StatisticsDashboard({ records, className = "", selectedDate }: S
         distribucaoCidades: {}
       };
 
-      records.forEach(record => {
+      // Filtrar apenas registros de presença (Presente e Justificado), excluindo cadastros (Ausente)
+      const presenceRecords = records.filter(r => 
+        r.status === 'Presente' || r.status === 'Justificado'
+      );
+
+      presenceRecords.forEach(record => {
         // Contar por cargo
         const cargo = record.churchPosition?.toLowerCase() || '';
         if (cargo.includes('pastor')) {
@@ -98,7 +103,7 @@ export function StatisticsDashboard({ records, className = "", selectedDate }: S
           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
         </CardTitle>
         <CardDescription>
-          Dados atualizados automaticamente baseados nos registros carregados ({records.length} registros)
+          Dados atualizados automaticamente baseados nos registros de presença ({records.filter(r => r.status === 'Presente' || r.status === 'Justificado').length} registros - excluindo cadastros)
           {selectedDate && (
             <div className="mt-1 text-sm font-medium text-blue-600">
               📅 Visualizando dados de: {(() => {

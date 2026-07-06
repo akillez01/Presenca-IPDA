@@ -1,38 +1,11 @@
 'use client';
 
 import { db } from '@/lib/firebase';
+import { DEFAULT_SYSTEM_CONFIG, normalizeSystemConfig } from '@/lib/system-config';
 import type { SystemConfig } from '@/lib/types';
-import { collection, doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { Timestamp, collection, doc, limit, onSnapshot, orderBy, query, updateDoc, where } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import { useAuth } from './use-auth';
-
-// Configurações padrão do sistema
-const DEFAULT_CONFIG: Omit<SystemConfig, 'lastUpdated' | 'updatedBy'> = {
-  reclassificationOptions: ['Local', 'Setorial', 'Central', 'Casa de oração', 'Estadual', 'Regional'],
-  regionOptions: ['Norte', 'Sul', 'Leste', 'Oeste', 'Central'],
-  churchPositionOptions: [
-    'Conselheiro(a)',
-    'Financeiro(a)', 
-    'Pastor',
-    'Presbítero',
-    'Diácono',
-    'Cooperador(a)',
-    'Líder Reação',
-    'Líder Simplifique', 
-    'Líder Creative',
-    'Líder Discipulus',
-    'Líder Adore',
-    'Auxiliar Expansão (a)',
-    'Etda Professor(a)',
-    'Coordenador Etda (a)',
-    'Líder Galileu (a)',
-    'Líder Adote uma alma (a)',
-    'Membro',
-    'Outro'
-  ],
-  shiftOptions: ['Manhã', 'Tarde', 'Noite'],
-  statusOptions: ['Presente', 'Ausente', 'Justificado']
-};
 
 export function useSystemConfig() {
   const { user } = useAuth();
@@ -54,15 +27,11 @@ export function useSystemConfig() {
       (snapshot) => {
         try {
           if (snapshot.exists()) {
-            const data = snapshot.data();
-            setConfig({
-              ...data,
-              lastUpdated: data.lastUpdated?.toDate ? data.lastUpdated.toDate() : (data.lastUpdated || new Date()),
-            } as SystemConfig);
+            setConfig(normalizeSystemConfig(snapshot.data(), user.uid));
           } else {
             // Se não existir, usar configuração padrão
             setConfig({
-              ...DEFAULT_CONFIG,
+              ...DEFAULT_SYSTEM_CONFIG,
               lastUpdated: new Date(),
               updatedBy: user.uid,
             });
@@ -122,11 +91,30 @@ export function useRealtimeAttendance(selectedDate?: string) {
       return;
     }
 
-    const attendanceRef = collection(db, 'attendance');
+    const now = new Date();
+    let startBound: Date;
+    let endBound: Date;
 
-    // Listener em tempo real para todos os registros de presença
+    if (selectedDate) {
+      const d = new Date(selectedDate + 'T12:00:00');
+      startBound = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1);
+      endBound = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 2, 23, 59, 59, 999);
+    } else {
+      startBound = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 8);
+      endBound = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 23, 59, 59, 999);
+    }
+
+    const attendanceQuery = query(
+      collection(db, 'attendance'),
+      where('timestamp', '>=', Timestamp.fromDate(startBound)),
+      where('timestamp', '<=', Timestamp.fromDate(endBound)),
+      orderBy('timestamp', 'desc'),
+      limit(2000)
+    );
+
+    // Listener em tempo real com filtro de data para reduzir leituras
     const unsubscribe = onSnapshot(
-      attendanceRef,
+      attendanceQuery,
       (snapshot) => {
         try {
           const records = snapshot.docs.map(doc => ({

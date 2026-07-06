@@ -70,24 +70,27 @@ export function useReports() {
       }
 
       // Processa os registros preservando as datas originais
-      const processedRecords: AttendanceRecord[] = records.map(data => ({
-        id: data.id,
-        timestamp: data.timestamp ? new Date(data.timestamp) : new Date(),
-        fullName: data.fullName ?? '',
-        cpf: data.cpf ?? '',
-        reclassification: data.reclassification ?? '',
-        pastorName: data.pastorName ?? '',
-        region: data.region ?? '',
-        churchPosition: data.churchPosition ?? '',
-        city: data.city ?? '',
-        shift: data.shift ?? '',
-        status: data.status ?? 'Presente',
-        createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
-        lastUpdated: data.lastUpdated ? new Date(data.lastUpdated) : undefined,
-        absentReason: data.absentReason ?? '',
-        birthday: data.birthday ?? '',
-        photoUrl: data.photoUrl ?? null,
-      }));
+      const processedRecords: AttendanceRecord[] = records.map(data => {
+        const ts = data.timestamp ?? data.createdAt; // usa createdAt como fallback se timestamp estiver ausente
+        return {
+          id: data.id,
+          timestamp: ts ? new Date(ts) : new Date(),
+          fullName: data.fullName ?? '',
+          cpf: data.cpf ?? '',
+          reclassification: data.reclassification ?? '',
+          pastorName: data.pastorName ?? '',
+          region: data.region ?? '',
+          churchPosition: data.churchPosition ?? '',
+          city: data.city ?? '',
+          shift: data.shift ?? '',
+          status: data.status ?? 'Presente',
+          createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
+          lastUpdated: data.lastUpdated ? new Date(data.lastUpdated) : undefined,
+          absentReason: data.absentReason ?? '',
+          birthday: data.birthday ?? '',
+          photoUrl: data.photoUrl ?? null,
+        };
+      });
 
       const totalRecords = processedRecords.length;
       const presentCount = processedRecords.filter(r => r.status === 'Presente').length;
@@ -241,10 +244,10 @@ export interface RealtimeReportsOptions {
 export function useRealtimeReports(options?: RealtimeReportsOptions) {
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const reportsHook = useReports();
-  const refreshInterval = options?.refreshIntervalMs ?? 30000;
+  // Mínimo 5 minutos para não esgotar a cota do Firebase (50k leituras/dia)
+  const refreshInterval = Math.max(options?.refreshIntervalMs ?? 300000, 300000);
 
   useEffect(() => {
-    // Auto-refresh using the configured interval for real-time updates
     const interval = setInterval(() => {
       reportsHook.refreshData();
       setLastUpdate(new Date());

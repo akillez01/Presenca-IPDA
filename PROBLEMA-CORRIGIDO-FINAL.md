@@ -74,7 +74,7 @@ GET /login 200 in 3827ms
 ### **Teste 2: Fazer Login**
 
 1. Acesse: http://localhost:9002/login
-2. Use: `admin@ipda.org.br` / `admin123!@#`
+2. Use as credenciais locais definidas em `credentials.local.json`
 3. **Resultado:** Login bem-sucedido e acesso às páginas protegidas ✅
 
 ### **Teste 3: Acessar Presença de Cadastrados Autenticado**

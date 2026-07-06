@@ -15,6 +15,8 @@ if (typeof window !== 'undefined') {
     'data-darkreader',
     '--darkreader-inline',
     'darkreader',
+    'translator-hidden',
+    'translate-tooltip-mtz',
     'Hydration failed because the server rendered HTML didn\'t match the client',
     'This can happen if a SSR-ed Client Component used',
   ];
@@ -64,4 +66,3 @@ if (typeof window !== 'undefined') {
 }
 
 export { };
-

@@ -1,4 +1,5 @@
 import { db } from '@/lib/firebase';
+import { getMemberDirectoryRecords } from '@/lib/member-data';
 import type { AttendanceRecord } from '@/lib/types';
 import {
     addDoc,
@@ -17,19 +18,22 @@ export async function getAttendanceRecords(): Promise<AttendanceRecord[]> {
     
     const attendanceCollection = collection(db, 'attendance');
     console.log('📂 Coleção attendance obtida');
-    
+
     const snapshot = await getDocs(attendanceCollection);
     console.log(`📊 Snapshot obtido: ${snapshot.size} documentos`);
     
     const records: AttendanceRecord[] = [];
     snapshot.forEach((doc) => {
       const data = doc.data();
+      const timestamp = data.timestamp?.toDate ? data.timestamp.toDate() : data.timestamp;
+      const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt;
+
       records.push({
         id: doc.id,
         ...data,
-        // Converte Timestamp do Firestore para Date se necessário
-        timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : data.timestamp,
-        createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt,
+        // Garante que sempre haja uma data confiável para filtros
+        timestamp: timestamp || createdAt || new Date(),
+        createdAt: createdAt || timestamp || new Date(),
         lastUpdated: data.lastUpdated?.toDate ? data.lastUpdated.toDate() : data.lastUpdated,
       } as AttendanceRecord);
     });
@@ -37,10 +41,21 @@ export async function getAttendanceRecords(): Promise<AttendanceRecord[]> {
     console.log(`✅ ${records.length} registros processados com sucesso`);
     return records;
   } catch (error) {
-    console.error('❌ Erro detalhado ao buscar registros:', error);
-    console.error('🔍 Tipo do erro:', typeof error);
-    console.error('🔍 Código do erro:', (error as any)?.code);
-    console.error('🔍 Mensagem do erro:', (error as any)?.message);
+    const code = (error as any)?.code;
+    console.error('❌ Erro ao buscar registros:', code, (error as any)?.message);
+    if (code === 'resource-exhausted') {
+      throw new Error('Cota do Firebase excedida. Aguarde alguns minutos e tente novamente.');
+    }
+    throw error;
+  }
+}
+
+// Função para buscar todos os membros (coleção members)
+export async function getMembersRecords(): Promise<AttendanceRecord[]> {
+  try {
+    return await getMemberDirectoryRecords();
+  } catch (error) {
+    console.error('Erro ao buscar members:', error);
     throw error;
   }
 }

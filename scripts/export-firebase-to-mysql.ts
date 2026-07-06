@@ -16,7 +16,9 @@ async function migrateFirebaseToMysql() {
         city: rec.city,
         shift: rec.shift,
         status: rec.status,
-        createdAt: rec.timestamp,
+        photoUrl: rec.photoUrl ?? null,
+        totvs: rec.totvs,
+        etda: rec.etda,
       });
       count++;
     } catch (err) {

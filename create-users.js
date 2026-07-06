@@ -1,34 +1,51 @@
 import admin from 'firebase-admin';
 import { readFileSync } from 'fs';
 
+import credentialsLoader from './credentials-loader.cjs';
+
+const {
+  loadCredentials,
+  getFirebaseAdminConfig,
+  getUserByKey,
+} = credentialsLoader;
+
+const credentials = loadCredentials();
+const firebaseAdminConfig = getFirebaseAdminConfig(credentials);
+
 // Inicializar Firebase Admin (usando o arquivo de service account)
-const serviceAccount = JSON.parse(readFileSync('./reuniao-ministerial-firebase-adminsdk-fbsvc-0e7e21e6f7.json', 'utf8'));
+const serviceAccount = JSON.parse(readFileSync(firebaseAdminConfig.serviceAccountPath, 'utf8'));
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
+  ...(firebaseAdminConfig.projectId ? { projectId: firebaseAdminConfig.projectId } : {}),
+  ...(firebaseAdminConfig.databaseURL ? { databaseURL: firebaseAdminConfig.databaseURL } : {}),
 });
+
+function requireUser(key) {
+  return getUserByKey(credentials, key);
+}
 
 // Usuários já existentes no Firebase (que precisam ser configurados)
 const usuariosExistentes = [
   {
-    email: 'presente@ipda.app.br',
-    uid: 'h9jGbyblHYXGMy52z6aDoKvWMeA3',
-    password: 'presente@2025', // Definir senha para este usuário
-    displayName: 'Controle de Presença IPDA',
+    email: requireUser('presente').email,
+    uid: requireUser('presente').uid,
+    password: requireUser('presente').password,
+    displayName: requireUser('presente').displayName || 'Controle de Presenca IPDA',
     tipo: 'Usuário Editor'
   },
   {
-    email: 'admin@ipda.org.br',
-    uid: 'RAiUb6brHcaVokG05bdgJf2glMh2',
-    password: 'IPDA@2025Admin', // Senha do admin
-    displayName: 'Administrador IPDA',
+    email: requireUser('admin').email,
+    uid: requireUser('admin').uid,
+    password: requireUser('admin').password,
+    displayName: requireUser('admin').displayName || 'Administrador IPDA',
     tipo: 'Super Usuário'
   },
   {
-    email: 'marciodesk@ipda.app.br',
-    uid: 'jeDLZ5xqexU9UXsEdDKc9PG3Ek52',
-    password: 'Michelin@1', // Senha do Márcio
-    displayName: 'Márcio Administrador',
+    email: requireUser('marciodesk').email,
+    uid: requireUser('marciodesk').uid,
+    password: requireUser('marciodesk').password,
+    displayName: requireUser('marciodesk').displayName || 'Marcio Administrador',
     tipo: 'Super Usuário'
   }
 ];
@@ -36,21 +53,21 @@ const usuariosExistentes = [
 // Usuários que precisam ser criados
 const usuariosNovos = [
   {
-    email: 'secretaria@ipda.org.br',
-    password: 'SecretariaIPDA@2025',
-    displayName: 'Secretaria IPDA',
+    email: requireUser('secretaria').email,
+    password: requireUser('secretaria').password,
+    displayName: requireUser('secretaria').displayName || 'Secretaria IPDA',
     tipo: 'Usuário Editor'
   },
   {
-    email: 'auxiliar@ipda.org.br',
-    password: 'AuxiliarIPDA@2025',
-    displayName: 'Auxiliar IPDA',
+    email: requireUser('auxiliar').email,
+    password: requireUser('auxiliar').password,
+    displayName: requireUser('auxiliar').displayName || 'Auxiliar IPDA',
     tipo: 'Usuário Editor'
   },
   {
-    email: 'cadastro@ipda.app.br',
-    password: 'ipda@2025',
-    displayName: 'Cadastro IPDA',
+    email: requireUser('cadastro').email,
+    password: requireUser('cadastro').password,
+    displayName: requireUser('cadastro').displayName || 'Cadastro IPDA',
     tipo: 'Usuário Editor'
   }
 ];
@@ -69,12 +86,12 @@ function resolveRole(userType) {
 
 function resolvePermissions(userType) {
   if (userType === 'SUPER_USER') {
-    return ['dashboard', 'register', 'attendance', 'letters', 'presencadecadastrados', 'edit_attendance', 'reports', 'admin_users', 'config'];
+    return ['dashboard', 'scanner', 'register', 'attendance', 'letters', 'baptism', 'presencadecadastrados', 'edit_attendance', 'reports', 'admin_users', 'config'];
   }
   if (userType === 'EDITOR_USER') {
-    return ['dashboard', 'register', 'attendance', 'letters', 'presencadecadastrados', 'edit_attendance', 'reports'];
+    return ['dashboard', 'scanner', 'register', 'attendance', 'letters', 'baptism', 'presencadecadastrados', 'edit_attendance', 'reports'];
   }
-  return ['dashboard', 'register', 'attendance', 'letters', 'presencadecadastrados'];
+  return ['dashboard', 'scanner', 'register', 'attendance', 'letters', 'baptism', 'presencadecadastrados'];
 }
 
 async function configurarUsuarios() {
@@ -106,7 +123,6 @@ async function configurarUsuarios() {
       
       console.log(`✅ ${usuario.email} configurado como: ${usuario.tipo}`);
       console.log(`   UID: ${usuario.uid}`);
-      console.log(`   Senha: ${usuario.password}`);
       console.log(`   Claims: ${customClaims.userType}\n`);
       
     } catch (error) {

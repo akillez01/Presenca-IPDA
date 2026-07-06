@@ -1,10 +1,18 @@
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { db } from "./firebase";
+import { collection, doc, getDocs, query, runTransaction, Timestamp, where } from "firebase/firestore";
+import { auth, db } from "./firebase";
 import {
-    addPresenca,
+  buildAttendanceSessionKey,
+  createMemberProfile,
+  getMemberRecordByCpf,
+  getAttendanceByCpfForSession,
+  getManausDateKey,
+  normalizeShift,
+  normalizeCpf,
+  upsertMemberProfile,
+} from "./member-data";
+import {
     deleteAttendanceRecord,
     getAllPresencas,
-    getPresencaByCpf,
     getPresencas,
     getPresencasByDateRange,
     getPresencaStats,
@@ -12,21 +20,207 @@ import {
     updateAttendanceStatus as updateAttendanceStatusBase,
 } from "./presenca-mysql";
 import type { AttendanceFormValues } from "./schemas";
+import type { AttendanceRecord } from "./types";
+
+const MANAUS_TIME_ZONE = "America/Manaus";
+
+function formatManausTime(date: Date): string {
+  return date.toLocaleTimeString("pt-BR", {
+    timeZone: MANAUS_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export async function updateAttendanceStatus(id: string, status: string, absentReason?: string, timestamp?: Date) {
   return updateAttendanceStatusBase(id, status, absentReason, timestamp);
 }
 
 export async function updateAttendanceRecord(id: string, data: any) {
-  return updateAttendanceRecordFirebase(id, data);
+  const result = await updateAttendanceRecordFirebase(id, data);
+
+  if (data && typeof data.cpf === "string" && normalizeCpf(data.cpf)) {
+    await upsertMemberProfile(data, {
+      lastPresenceAt: data.timestamp instanceof Date ? data.timestamp : undefined,
+    });
+  }
+
+  return result;
 }
 
 export async function getAttendanceByCpf(cpf: string) {
-  const cleanCpf = (cpf || "").replace(/\D/g, "");
+  return getMemberRecordByCpf(cpf);
+}
+
+function buildAttendancePayloadFromMember(
+  member: Partial<AttendanceRecord>,
+  status: string,
+  absentReason?: string,
+  timestamp?: Date
+) {
+  const cleanCpf = normalizeCpf(member.cpf || "");
+  const normalizedShift = normalizeShift(member.shift || "Manhã");
+  const attendanceTimestamp = timestamp ?? new Date();
+
+  return {
+    fullName: member.fullName || "",
+    cpf: cleanCpf,
+    birthday: member.birthday || "",
+    reclassification: member.reclassification || "",
+    pastorName: member.pastorName || "",
+    region: member.region || "",
+    churchPosition: member.churchPosition || "",
+    city: member.city || "",
+    shift: normalizedShift,
+    totvs: member.totvs || "",
+    etda: member.etda || "",
+    phone: member.phone || "",
+    status,
+    absentReason: absentReason || "",
+    photoUrl: member.photoUrl ?? null,
+    timestamp: attendanceTimestamp,
+    createdAt: attendanceTimestamp,
+    attendanceDateKey: getManausDateKey(attendanceTimestamp),
+    attendanceKey: buildAttendanceSessionKey(cleanCpf, attendanceTimestamp, normalizedShift),
+    memberId: cleanCpf,
+  };
+}
+
+async function createAttendanceSessionRecord(
+  payload: ReturnType<typeof buildAttendancePayloadFromMember>,
+  referenceDate: Date,
+  conflictBehavior: "error" | "update"
+) {
+  const attendanceKey = buildAttendanceSessionKey(payload.cpf, referenceDate, payload.shift);
+  const attendanceDateKey = getManausDateKey(referenceDate);
+  const docRef = doc(db, "attendance", attendanceKey);
+
+  return runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(docRef);
+
+    if (snap.exists()) {
+      if (conflictBehavior === "error") {
+        return { id: docRef.id, mode: "existing" as const };
+      }
+
+      transaction.update(docRef, {
+        ...payload,
+        attendanceKey,
+        attendanceDateKey,
+        timestamp: Timestamp.fromDate(referenceDate),
+        lastUpdated: Timestamp.fromDate(referenceDate),
+        updatedAt: Timestamp.fromDate(referenceDate),
+      });
+
+      return { id: docRef.id, mode: "updated" as const };
+    }
+
+    transaction.set(docRef, {
+      ...payload,
+      attendanceKey,
+      attendanceDateKey,
+      timestamp: Timestamp.fromDate(referenceDate),
+      createdAt: Timestamp.fromDate(referenceDate),
+      lastUpdated: Timestamp.fromDate(referenceDate),
+      updatedAt: Timestamp.fromDate(referenceDate),
+      sourceCollection: "attendance",
+    });
+
+    return { id: docRef.id, mode: "created" as const };
+  });
+}
+
+export async function syncMemberProfile(
+  data: Partial<AttendanceRecord> | AttendanceFormValues,
+  options?: { lastPresenceAt?: Date | null }
+) {
+  return upsertMemberProfile(data, options);
+}
+
+export async function registerAttendanceByCpf(
+  cpf: string,
+  status: string = "Presente",
+  absentReason?: string,
+  timestamp: Date = new Date()
+) {
+  const cleanCpf = normalizeCpf(cpf);
   if (!cleanCpf) {
-    return null;
+    return { success: false, error: "CPF invalido para registrar presenca." };
   }
-  return getPresencaByCpf(cleanCpf);
+
+  const member = await getMemberRecordByCpf(cleanCpf);
+  if (!member) {
+    return { success: false, error: `Pessoa com CPF ${cleanCpf} nao encontrada no cadastro.` };
+  }
+
+  const normalizedShift = normalizeShift(member.shift || "Manhã");
+
+  const sessionRecord = await getAttendanceByCpfForSession(cleanCpf, normalizedShift, timestamp);
+
+  if (sessionRecord) {
+    await updateAttendanceStatusBase(sessionRecord.id, status, absentReason, timestamp);
+    await upsertMemberProfile(
+      {
+        ...member,
+        cpf: cleanCpf,
+        shift: normalizedShift,
+        status,
+        absentReason,
+      },
+      { lastPresenceAt: timestamp }
+    );
+
+    return {
+      success: true,
+      id: sessionRecord.id,
+      record: {
+        ...sessionRecord.record,
+        status,
+        absentReason: absentReason || "",
+        timestamp,
+        lastUpdated: timestamp,
+      } as AttendanceRecord,
+      mode: "updated" as const,
+    };
+  }
+
+  const payload = buildAttendancePayloadFromMember(
+    {
+      ...member,
+      cpf: cleanCpf,
+      shift: normalizedShift,
+    },
+    status,
+    absentReason,
+    timestamp
+  );
+
+  const created = await createAttendanceSessionRecord(payload, timestamp, "update");
+
+  await upsertMemberProfile(
+    {
+      ...member,
+      cpf: cleanCpf,
+      shift: normalizedShift,
+      status,
+      absentReason,
+    },
+    { lastPresenceAt: timestamp }
+  );
+
+  return {
+    success: true,
+    id: created.id,
+    record: {
+      id: created.id,
+      ...payload,
+      timestamp,
+      createdAt: timestamp,
+      lastUpdated: timestamp,
+      sourceCollection: "attendance",
+    } as AttendanceRecord,
+    mode: created.mode,
+  };
 }
 
 // Exportação explícita para uso no client
@@ -116,84 +310,103 @@ export async function getAttendanceByDateRange(start: Date, end: Date) {
 
 export async function addAttendance(data: AttendanceFormValues) {
   try {
-    const cleanCpf = (data.cpf || '').replace(/\D/g, '');
+    const cleanCpf = normalizeCpf(data.cpf);
     const normalizedStatus = data.status || 'Presente';
-    const normalizedShift = data.shift || 'Manhã';
+    const normalizedShift = normalizeShift(data.shift || 'Manhã');
     const normalizedBirthday = data.birthday ? data.birthday.trim() : '';
-    
-    // Estratégia mais simples: buscar TODOS os registros do CPF e verificar apenas os de hoje
-    console.log(`🔍 Verificando duplicidade para CPF ${cleanCpf}`);
-    
-    // Buscar todos os registros deste CPF (sem usar índices compostos)
-    const cpfQuery = query(
-      collection(db, 'attendance'),
-      where('cpf', '==', cleanCpf)
-    );
-    
-    const cpfSnapshot = await getDocs(cpfQuery);
-    
-    // Verificar se algum é de hoje
-    const today = new Date();
-    const todayDateString = today.toDateString(); // Format: "Sat Oct 19 2025"
-    
-    let foundToday = false;
-    let existingTodayName = '';
-    
-    cpfSnapshot.forEach((doc) => {
-      const docData = doc.data();
-      const timestamp = docData.timestamp?.toDate ? docData.timestamp.toDate() : null;
-      
-      if (timestamp) {
-        const recordDateString = timestamp.toDateString();
-        if (recordDateString === todayDateString) {
-          foundToday = true;
-          existingTodayName = docData.fullName || 'Nome não informado';
-        }
-      }
-    });
-    
-    if (foundToday) {
-      console.log(`❌ CPF ${cleanCpf} já registrado hoje: ${existingTodayName}`);
-      return { 
-        success: false, 
-        error: `CPF ${data.cpf} já foi registrado hoje para ${existingTodayName}. Para registrar novamente, use a página de "Presença de Cadastrados".` 
+    const currentTimestamp = new Date();
+    const existingSession = await getAttendanceByCpfForSession(cleanCpf, normalizedShift, currentTimestamp);
+
+    if (existingSession) {
+      const recordedAt =
+        existingSession.record.timestamp ??
+        existingSession.record.lastUpdated ??
+        existingSession.record.createdAt ??
+        currentTimestamp;
+      const timeLabel = recordedAt ? ` às ${formatManausTime(recordedAt)}` : "";
+
+      console.log(`❌ CPF ${cleanCpf} já registrado na sessão ${normalizedShift}: ${existingSession.record.fullName}${timeLabel}`);
+      return {
+        success: false,
+        error: `Este CPF (${data.cpf}) já possui um registro nesta sessão (${normalizedShift}) para ${existingSession.record.fullName}${timeLabel}. Se deseja apenas atualizar o status, use a página "Presença de Cadastrados".`,
       };
     }
-    
-    console.log(`✅ CPF ${cleanCpf} liberado para registro (${cpfSnapshot.size} registros históricos, nenhum de hoje)`);
-    
-    // Log dos dados antes de inserir
-    const registroData = {
-      fullName: data.fullName,
-      cpf: cleanCpf,
-      birthday: normalizedBirthday,
-      reclassification: data.reclassification,
-      pastorName: data.pastorName,
-      region: data.region,
-      churchPosition: data.churchPosition,
-      city: data.city,
-      shift: normalizedShift,
-      status: normalizedStatus,
-      photoUrl: data.photoUrl ?? null
-    };
+
+    const registroData = buildAttendancePayloadFromMember(
+      {
+        ...data,
+        cpf: cleanCpf,
+        birthday: normalizedBirthday,
+        shift: normalizedShift,
+        status: normalizedStatus,
+      } as Partial<AttendanceRecord>,
+      normalizedStatus,
+      undefined,
+      currentTimestamp
+    );
     
     console.log('📝 Dados do registro a serem salvos:');
     console.log('   - Nome:', registroData.fullName);
     console.log('   - CPF:', registroData.cpf);
+    console.log('   - Sessão:', registroData.attendanceKey);
     console.log('   - Photo URL presente?', registroData.photoUrl ? 'SIM ✅' : 'NÃO ❌');
     if (registroData.photoUrl) {
       console.log('   - Photo URL tipo:', registroData.photoUrl.startsWith('data:') ? 'BASE64' : 'URL');
       console.log('   - Photo URL tamanho:', Math.round(registroData.photoUrl.length / 1024), 'KB');
     }
-    
-    // Insere no Firestore
-    const createdId = await addPresenca(registroData);
-    
-    console.log(`✅ Registro criado com sucesso para ${data.fullName} (CPF: ${data.cpf}) - ID: ${createdId}`);
-    return { success: true, id: createdId };
+
+    const created = await createAttendanceSessionRecord(registroData, currentTimestamp, "error");
+    if (created.mode === "existing") {
+      return {
+        success: false,
+        error: `Este CPF (${data.cpf}) já acabou de ser registrado nesta sessão (${normalizedShift}). Atualize a lista antes de tentar novamente.`,
+      };
+    }
+
+    await upsertMemberProfile(
+      {
+        ...data,
+        cpf: cleanCpf,
+        birthday: normalizedBirthday,
+        shift: normalizedShift,
+        status: normalizedStatus,
+      },
+      { lastPresenceAt: currentTimestamp }
+    );
+
+    console.log(`✅ Registro criado com sucesso para ${data.fullName} (CPF: ${data.cpf}) - ID: ${created.id}`);
+    return { success: true, id: created.id };
   } catch (e) {
     console.error("❌ Error adding document: ", e);
     return { success: false, error: "Falha ao registrar presença. Verifique as configurações do banco de dados." };
+  }
+}
+
+// Cadastro de membro na coleção "members" (sem registrar presença)
+export async function addMember(data: AttendanceFormValues) {
+  try {
+    const cleanCpf = normalizeCpf(data.cpf);
+    if (!cleanCpf) {
+      return { success: false, error: 'CPF inválido para cadastro de membro.' };
+    }
+
+    await createMemberProfile({
+      ...data,
+      cpf: cleanCpf,
+      shift: normalizeShift(data.shift || "Manhã"),
+      status: data.status || 'Ausente',
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Erro ao cadastrar membro:', error);
+    if (error instanceof Error && error.message === "MEMBER_ALREADY_EXISTS") {
+      return {
+        success: false,
+        error: "Ja existe um membro cadastrado com este CPF. Para evitar sobrescrever dados, use a tela de edicao em vez de cadastrar novamente.",
+      };
+    }
+    return { success: false, error: 'Falha ao cadastrar o membro.' };
   }
 }
 
@@ -207,8 +420,8 @@ export async function getAttendanceRecords(params?: {
 }) {
   // Utilitário para converter para início/fim do dia em America/Manaus
   function toManausDay(dateStr: string, endOfDay = false): Date {
-    // Espera yyyy-mm-dd
-    const [y, m, d] = dateStr.split("-");
+    const normalized = dateStr.includes("T") ? dateStr.slice(0, 10) : dateStr;
+    const [y, m, d] = normalized.split("-");
     const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0));
     // Converte para Manaus
     return new Date(dt.toLocaleString("en-US", { timeZone: "America/Manaus" }));
@@ -288,8 +501,46 @@ export async function getTodayAttendance() {
 // Função para excluir um registro de presença
 export async function deleteAttendance(id: string) {
   try {
-    // Deletar documento e receber URL da foto (se existir)
-    const { photoUrl } = await deleteAttendanceRecord(id);
+    let photoUrl: string | null = null;
+    let deletedByApi = false;
+
+    const currentUser = auth.currentUser;
+
+    if (currentUser) {
+      const token = await currentUser.getIdToken();
+      const response = await fetch("/api/admin/attendance", {
+        method: "DELETE",
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ id }),
+      });
+
+      let payload: any = null;
+
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
+
+      if (response.ok && payload?.success) {
+        photoUrl = typeof payload.photoUrl === "string" ? payload.photoUrl : null;
+        deletedByApi = true;
+      } else if (![404, 405, 501].includes(response.status)) {
+        return {
+          success: false,
+          error: payload?.message || "Falha ao excluir registro de presença.",
+        };
+      }
+    }
+
+    if (!deletedByApi) {
+      const deletedRecord = await deleteAttendanceRecord(id);
+      photoUrl = typeof deletedRecord.photoUrl === "string" ? deletedRecord.photoUrl : null;
+    }
     
     // Se tinha foto, deletar do Storage
     if (photoUrl) {

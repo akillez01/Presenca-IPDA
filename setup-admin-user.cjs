@@ -6,14 +6,23 @@
  */
 
 const admin = require('firebase-admin');
-const path = require('path');
+const {
+  loadCredentials,
+  getFirebaseAdminConfig,
+  getUserByKey,
+} = require('./credentials-loader.cjs');
+
+const credentials = loadCredentials();
+const firebaseAdminConfig = getFirebaseAdminConfig(credentials);
+const adminUser = getUserByKey(credentials, 'admin');
 
 // Inicializar Firebase Admin
-const serviceAccount = require('./reuniao-ministerial-firebase-adminsdk-fbsvc-abbe4123aa.json');
+const serviceAccount = require(firebaseAdminConfig.serviceAccountPath);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  projectId: 'reuniao-ministerial'
+  ...(firebaseAdminConfig.projectId ? { projectId: firebaseAdminConfig.projectId } : {}),
+  ...(firebaseAdminConfig.databaseURL ? { databaseURL: firebaseAdminConfig.databaseURL } : {}),
 });
 
 const auth = admin.auth();
@@ -25,9 +34,9 @@ async function createAdminUser() {
     
     // Criar usuário de autenticação
     const userRecord = await auth.createUser({
-      email: 'admin@ipda.org.br',
-      password: 'admin123!@#', // ⚠️ MUDAR ESTA SENHA EM PRODUÇÃO
-      displayName: 'Admin IPDA',
+      email: adminUser.email,
+      password: adminUser.password,
+      displayName: adminUser.displayName || 'Admin IPDA',
       emailVerified: true
     });
 
@@ -35,8 +44,8 @@ async function createAdminUser() {
 
     // Criar documento do usuário no Firestore
     await db.collection('users').doc(userRecord.uid).set({
-      email: 'admin@ipda.org.br',
-      displayName: 'Admin IPDA',
+      email: adminUser.email,
+      displayName: adminUser.displayName || 'Admin IPDA',
       role: 'admin',
       cargo: 'SUPER_USER',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -57,8 +66,8 @@ async function createAdminUser() {
     console.log(`
 🎉 USUÁRIO ADMIN CRIADO COM SUCESSO!
 
-📧 Email: admin@ipda.org.br
-🔑 Senha: admin123!@# (MUDAR EM PRODUÇÃO!)
+📧 Email: ${adminUser.email}
+🔑 Senha: definida em credentials.local.json
 👤 Role: admin
 🏢 Cargo: SUPER_USER
 
@@ -73,7 +82,7 @@ async function createAdminUser() {
       console.log('⚠️  Usuário admin já existe. Apenas atualizando dados...');
       
       // Buscar usuário existente
-      const existingUser = await auth.getUserByEmail('admin@ipda.org.br');
+      const existingUser = await auth.getUserByEmail(adminUser.email);
       
       // Atualizar claims
       await auth.setCustomUserClaims(existingUser.uid, {
@@ -83,8 +92,8 @@ async function createAdminUser() {
 
       // Atualizar documento no Firestore
       await db.collection('users').doc(existingUser.uid).set({
-        email: 'admin@ipda.org.br',
-        displayName: 'Admin IPDA',
+        email: adminUser.email,
+        displayName: adminUser.displayName || 'Admin IPDA',
         role: 'admin',
         cargo: 'SUPER_USER',
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),

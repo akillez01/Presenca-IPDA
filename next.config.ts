@@ -1,7 +1,8 @@
 import type { NextConfig } from 'next';
 
-// Detectar se é build para Plesk
-const isPleskBuild = process.env.BUILD_TARGET === 'plesk' || process.env.NODE_ENV === 'production';
+// Detectar build estatico para Plesk explicitamente.
+// `npm run build` deve continuar gerando um build normal com suporte a rotas API.
+const isPleskBuild = process.env.BUILD_TARGET === 'plesk';
 
 const nextConfig: NextConfig = {
   // Configurações básicas
@@ -68,6 +69,7 @@ const nextConfig: NextConfig = {
   output: isPleskBuild ? 'export' : undefined,
   trailingSlash: isPleskBuild,
   skipTrailingSlashRedirect: isPleskBuild,
+  distDir: '.next',
   
   // Configurações de assets para Plesk
   assetPrefix: isPleskBuild ? '' : undefined,
@@ -131,19 +133,8 @@ const nextConfig: NextConfig = {
     ],
   },
 
-  // Turbopack config (nova configuração)
-  turbopack: {
-    rules: {
-      '*.svg': {
-        loaders: ['@svgr/webpack'],
-        as: '*.js',
-      },
-    },
-  },
-
   // Configurações específicas para servidor estático (Plesk)
   ...(isPleskBuild && {
-    distDir: 'out',
     generateBuildId: async () => {
       return `plesk-build-${Date.now()}`;
     },

@@ -1,15 +1,11 @@
 // Script Node.js independente para exportar direto do MySQL para CSV
 const fs = require('fs');
 const mysql = require('mysql2/promise');
+const { loadCredentials, getMysqlConfig } = require('../credentials-loader.cjs');
 
-// Configuração do banco de dados (ajuste conforme necessário)
-const dbConfig = {
-  host: '74.208.44.241',
-  user: 'adminipda',
-  password: 'IPDA@2025Admin',
-  database: 'admin_ipda',
-  port: 3306,
-};
+const credentials = loadCredentials();
+// Configuração do banco de dados centralizada em credentials.local.json
+const dbConfig = getMysqlConfig(credentials);
 
 async function exportMysqlToCSV() {
   const connection = await mysql.createConnection(dbConfig);

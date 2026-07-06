@@ -28,8 +28,19 @@ export function FilterPanel({
   
   // Função para resetar os filtros simplificados
   const handleReset = () => {
+    let today = "";
+    try {
+      today = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Manaus",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date());
+    } catch {
+      today = new Date().toISOString().split("T")[0];
+    }
     onFiltersChange({
-      dateFilter: new Date().toISOString().split('T')[0] // Volta para hoje por padrão
+      dateFilter: today // Volta para hoje por padrão (Manaus)
     });
   };
 

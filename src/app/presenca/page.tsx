@@ -254,7 +254,7 @@ function PublicAttendanceFormContent() {
                          </Select>
                       ) : (
                         <FormControl>
-                          <Input placeholder={fieldInfo.placeholder} {...field} />
+                          <Input placeholder={fieldInfo.placeholder} {...field} value={field.value ?? ""} />
                         </FormControl>
                       )}
                       <FormMessage />

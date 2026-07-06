@@ -2,17 +2,18 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  Building,
-  Calendar,
-  Clock,
-  Fingerprint,
-  Loader2,
-  Map,
-  MapPin,
-  Send,
-  User,
-  UserCog,
-  UserSquare
+    Building,
+    Calendar,
+    Clock,
+    Fingerprint,
+    Loader2,
+    Map,
+    MapPin,
+    Phone,
+    Send,
+    User,
+    UserCog,
+    UserSquare
 } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -21,25 +22,25 @@ import { PhotoCaptureField } from "@/components/attendance/photo-capture-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
+    Form,
+    FormControl,
+    FormField,
+    FormItem,
+    FormLabel,
+    FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
 } from "@/components/ui/select";
 import { useSystemConfig } from "@/hooks/use-realtime";
 import { useToast } from "@/hooks/use-toast";
-import { addAttendance } from "@/lib/actions";
+import { addMember } from "@/lib/actions";
 import { deleteAttendancePhoto, uploadAttendancePhoto } from "@/lib/attendance-photo";
 import { attendanceSchema, type AttendanceFormValues } from "@/lib/schemas";
 
@@ -72,7 +73,7 @@ const createFormFields = (config: any): FieldInfo[] => [
     options: config?.reclassificationOptions || ['Local', 'Setorial', 'Central', 'Casa de oração', 'Estadual', 'Regional']
   },
   { name: "pastorName", label: "Nome do Pastor", icon: UserSquare, placeholder: "Digite o nome do pastor" },
-  { name: "cfoCourse", label: "Curso CFO", icon: UserSquare, placeholder: "Selecione", options: ["SIM", "NÃO"] },
+  { name: "cfoCourse", label: "Curso", icon: UserSquare, placeholder: "Selecione", options: ["SIM", "NÃO"] },
   { 
     name: "region", 
     label: "Região", 
@@ -125,6 +126,9 @@ const createFormFields = (config: any): FieldInfo[] => [
     placeholder: "Selecione", 
     options: config?.shiftOptions || ['Manhã', 'Tarde']
   },
+  { name: "totvs", label: "TOTVS", icon: UserSquare, placeholder: "Digite o código TOTVS" },
+  { name: "etda", label: "ETDA", icon: UserSquare, placeholder: "Digite o código ETDA" },
+  { name: "phone", label: "Telefone / WhatsApp", icon: Phone, placeholder: "(XX) XXXXX-XXXX" },
 ] as const;
 
 const httpsRequirementMessage =
@@ -150,7 +154,10 @@ function AttendanceFormContent() {
       region: "",
       churchPosition: undefined,
       shift: undefined,
-      status: "Presente",
+      totvs: "",
+      etda: "",
+      phone: "",
+      status: "Ausente",
     },
   });
 
@@ -163,6 +170,7 @@ function AttendanceFormContent() {
   const col2Names: (keyof AttendanceFormValues)[] = [
     "birthday", "reclassification", "cfoCourse", "churchPosition", "shift"
   ];
+  const additionalFields: (keyof AttendanceFormValues)[] = ["totvs", "etda", "phone"];
   const col1Fields = col1Names.map(name => formFields.find(f => f.name === name));
   const col2Fields = col2Names.map(name => formFields.find(f => f.name === name));
 
@@ -214,7 +222,7 @@ function AttendanceFormContent() {
         ...values,
         birthday: values.birthday ? values.birthday.trim() : undefined,
         churchPosition: normalizedPosition,
-        status: values.status || 'Presente',
+        status: 'Ausente', // Forçar Ausente para não registrar presença no cadastro
         photoUrl: undefined
       };
 
@@ -280,9 +288,9 @@ function AttendanceFormContent() {
           'null'
       });
 
-      const result = await addAttendance(normalizedValues);
+      const result = await addMember(normalizedValues);
       if (result.success) {
-        setSuccess("Cadastro realizado com sucesso!");
+        setSuccess("✅ Membro cadastrado com sucesso! Este cadastro NÃO registrou presença. Para marcar presença, acesse 'Presença de Cadastrados'.");
         form.reset();
         setPhotoSelection(null);
       } else {
@@ -331,15 +339,15 @@ function AttendanceFormContent() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-2 sm:px-4">
-      <div className="mb-3 sm:mb-4 flex justify-start">
-        <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white px-3 sm:px-4 py-1 rounded text-sm" onClick={() => window.location.href = "/"}>Voltar</Button>
+    <div className="max-w-3xl mx-auto px-2 sm:px-4 animate-in fade-in duration-500">
+      <div className="mb-3 sm:mb-4 flex justify-start animate-in slide-in-from-left duration-500">
+        <Button size="sm" className="bg-green-600 hover:bg-green-700 hover:scale-105 text-white px-3 sm:px-4 py-1 rounded text-sm transition-all duration-200" onClick={() => window.location.href = "/"}>Voltar</Button>
       </div>
-      <Card>
-      <CardHeader className="p-4 sm:p-6">
-        <CardTitle className="text-lg sm:text-xl">Registrar Cadastro</CardTitle>
+      <Card className="animate-in fade-in slide-in-from-bottom duration-700" style={{ animationDelay: '100ms' }}>
+      <CardHeader className="p-4 sm:p-6 animate-in slide-in-from-top duration-500" style={{ animationDelay: '200ms' }}>
+        <CardTitle className="text-lg sm:text-xl">Cadastrar Novo Membro</CardTitle>
         <CardDescription className="text-sm sm:text-base">
-          Preencha os campos abaixo para registrar a presença.
+          Preencha os campos abaixo para cadastrar um novo membro. <strong className="text-orange-600">Este cadastro NÃO registra presença.</strong> Para marcar presença, use a página "Presença de Cadastrados".
           {config && (
             <span className="block text-xs text-muted-foreground mt-1">
               Última atualização das opções: {config.lastUpdated.toLocaleString('pt-BR')}
@@ -358,7 +366,7 @@ function AttendanceFormContent() {
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 sm:space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
               <div className="flex flex-col gap-3 sm:gap-4">
-                {col1Fields.map((fieldInfo) => fieldInfo && (
+                {col1Fields.map((fieldInfo, index) => fieldInfo && (
                   <FormField
                     key={fieldInfo.name}
                     control={form.control}
@@ -371,7 +379,7 @@ function AttendanceFormContent() {
                         </FormLabel>
                         {fieldInfo.inputType === 'date' ? (
                           <FormControl>
-                            <Input type="date" placeholder={fieldInfo.placeholder} {...field} />
+                            <Input type="date" placeholder={fieldInfo.placeholder} {...field} value={field.value ?? ""} />
                           </FormControl>
                         ) : fieldInfo.options ? (
                            <Select onValueChange={field.onChange} value={field.value ?? ""}>
@@ -388,7 +396,7 @@ function AttendanceFormContent() {
                            </Select>
                         ) : (
                           <FormControl>
-                            <Input placeholder={fieldInfo.placeholder} {...field} />
+                            <Input placeholder={fieldInfo.placeholder} {...field} value={field.value ?? ""} />
                           </FormControl>
                         )}
                         <FormMessage />
@@ -398,20 +406,20 @@ function AttendanceFormContent() {
                 ))}
               </div>
               <div className="flex flex-col gap-4">
-                {col2Fields.map((fieldInfo) => fieldInfo && (
+                {col2Fields.map((fieldInfo, index) => fieldInfo && (
                   <FormField
                     key={fieldInfo.name}
                     control={form.control}
                     name={fieldInfo.name}
                     render={({ field }) => (
-                      <FormItem>
+                      <FormItem className="animate-in fade-in slide-in-from-right duration-500" style={{ animationDelay: `${300 + index * 50}ms` }}>
                         <FormLabel className="flex items-center gap-2">
                           <fieldInfo.icon className="h-4 w-4 text-muted-foreground" />
                           {fieldInfo.label}
                         </FormLabel>
                         {fieldInfo.inputType === 'date' ? (
                           <FormControl>
-                            <Input type="date" placeholder={fieldInfo.placeholder} {...field} />
+                            <Input type="date" placeholder={fieldInfo.placeholder} {...field} value={field.value ?? ""} />
                           </FormControl>
                         ) : fieldInfo.options ? (
                            <Select onValueChange={field.onChange} value={field.value ?? ""}>
@@ -428,7 +436,7 @@ function AttendanceFormContent() {
                            </Select>
                         ) : (
                           <FormControl>
-                            <Input placeholder={fieldInfo.placeholder} {...field} />
+                            <Input placeholder={fieldInfo.placeholder} {...field} value={field.value ?? ""} />
                           </FormControl>
                         )}
                         <FormMessage />
@@ -438,18 +446,44 @@ function AttendanceFormContent() {
                 ))}
               </div>
             </div>
-            <PhotoCaptureField
-              value={photoSelection?.preview ?? null}
-              onChange={setPhotoSelection}
-              disabled={isSubmitting || isUploadingPhoto}
-              description="Anexe ou capture a foto do membro. Este passo é opcional, mas ajuda a identificar o cadastro."
-              insecureFallbackMessage={httpsRequirementMessage}
-            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+              {additionalFields.map((fieldName, index) => {
+                const fieldInfo = formFields.find(f => f.name === fieldName);
+                return fieldInfo ? (
+                  <FormField
+                    key={fieldInfo.name}
+                    control={form.control}
+                    name={fieldInfo.name}
+                    render={({ field }) => (
+                      <FormItem className="animate-in fade-in slide-in-from-bottom duration-500" style={{ animationDelay: `${700 + index * 100}ms` }}>
+                        <FormLabel className="flex items-center gap-2">
+                          <fieldInfo.icon className="h-4 w-4 text-muted-foreground" />
+                          {fieldInfo.label}
+                        </FormLabel>
+                        <FormControl>
+                          <Input placeholder={fieldInfo.placeholder} {...field} value={field.value ?? ""} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : null;
+              })}
+            </div>
+            <div className="animate-in fade-in slide-in-from-bottom duration-700" style={{ animationDelay: '900ms' }}>
+              <PhotoCaptureField
+                value={photoSelection?.preview ?? null}
+                onChange={setPhotoSelection}
+                disabled={isSubmitting || isUploadingPhoto}
+                description="Anexe ou capture a foto do membro. Este passo é opcional, mas ajuda a identificar o cadastro."
+                insecureFallbackMessage={httpsRequirementMessage}
+              />
+            </div>
             {isUploadingPhoto && (
               <p className="text-xs text-muted-foreground">Enviando foto, aguarde...</p>
             )}
-            <div className="flex justify-end">
-                <Button type="submit" className="gap-2" disabled={isSubmitting || isUploadingPhoto}>
+            <div className="flex justify-end animate-in fade-in slide-in-from-bottom duration-700" style={{ animationDelay: '700ms' }}>
+                <Button type="submit" className="gap-2 hover:scale-105 transition-transform duration-200" disabled={isSubmitting || isUploadingPhoto}>
                   {isSubmitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />

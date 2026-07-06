@@ -28,6 +28,8 @@ interface PWAActions {
   showNotification: (title: string, options?: NotificationOptions) => Promise<void>;
 }
 
+const SERVICE_WORKER_VERSION = '20260306-2';
+
 export function usePWA(): PWAState & PWAActions {
   const [state, setState] = useState<PWAState>({
     isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
@@ -107,7 +109,7 @@ export function usePWA(): PWAState & PWAActions {
 
   const registerServiceWorker = async () => {
     try {
-      const reg = await navigator.serviceWorker.register('/sw.js', {
+      const reg = await navigator.serviceWorker.register(`/sw.js?v=${SERVICE_WORKER_VERSION}`, {
         scope: '/'
       });
 

@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: ipda-postgres
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-ipdadb}
+      POSTGRES_USER: ${DATABASE_USER:-ipdaadmin}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-senha_segura}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-ipdaadmin}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # API Server
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ipda-api
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${DATABASE_NAME:-ipdadb}
+      DATABASE_USER: ${DATABASE_USER:-ipdaadmin}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-senha_segura}
+      DATABASE_SSL: "false"
+      JWT_SECRET: ${JWT_SECRET:-sua_chave_secreta_muito_segura_aqui}
+      JWT_EXPIRATION: "7d"
+      JWT_REFRESH_EXPIRATION: "30d"
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://localhost:3001}
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./dist:/app/dist
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local

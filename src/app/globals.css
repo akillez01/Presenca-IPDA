@@ -185,3 +185,23 @@
     margin: 0 !important;
   }
 }
+
+/* Prevenir hydration issues do Dark Reader */
+@layer base {
+  /* Esconder atributos de estilo inline adicionados por extensões */
+  [style*="darkreader"],
+  [data-darkreader-inline-bgcolor],
+  [data-darkreader-inline-bgimage],
+  [data-darkreader-inline-border],
+  [data-darkreader-inline-borderbottom],
+  [data-darkreader-inline-borderleft],
+  [data-darkreader-inline-borderright],
+  [data-darkreader-inline-bordertop],
+  [data-darkreader-inline-boxshadow],
+  [data-darkreader-inline-color],
+  [data-darkreader-inline-fill],
+  [data-darkreader-inline-stroke],
+  [data-darkreader-inline-outline] {
+    /* Não fazer nada, apenas garantir que o React não reclame */
+  }
+}

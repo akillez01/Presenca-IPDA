@@ -3,7 +3,8 @@ import React from "react";
 
 export default function PresencaCadastradosLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="bg-background min-h-screen flex items-center justify-center">
+    // No mobile, centralizar deixa "estranho" e pode quebrar responsividade.
+    <div className="bg-background min-h-screen w-full" suppressHydrationWarning>
       {children}
     </div>
   );

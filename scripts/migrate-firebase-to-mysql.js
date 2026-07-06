@@ -1,23 +1,27 @@
 // Script Node.js para migrar dados do Firebase Firestore para MariaDB (Plesk)
 const admin = require('firebase-admin');
 const mysql = require('mysql2/promise');
-const serviceAccount = require('../reuniao-ministerial-firebase-adminsdk-fbsvc-0e7e21e6f7.json');
+const {
+  loadCredentials,
+  getFirebaseAdminConfig,
+  getMysqlConfig,
+} = require('../credentials-loader.cjs');
+
+const credentials = loadCredentials();
+const firebaseAdminConfig = getFirebaseAdminConfig(credentials);
+const serviceAccount = require(firebaseAdminConfig.serviceAccountPath);
 
 // Inicializa Firebase Admin
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+  credential: admin.credential.cert(serviceAccount),
+  ...(firebaseAdminConfig.projectId ? { projectId: firebaseAdminConfig.projectId } : {}),
+  ...(firebaseAdminConfig.databaseURL ? { databaseURL: firebaseAdminConfig.databaseURL } : {}),
 });
 
 const db = admin.firestore();
 
-// Configuração do banco MariaDB (Plesk)
-const dbConfig = {
-  host: '74.208.44.241',
-  user: 'adminipda',
-  password: 'IPDA@2025Admin',
-  database: 'admin_ipda',
-  port: 3306,
-};
+// Configuração do banco MariaDB (Plesk) centralizada em credentials.local.json
+const dbConfig = getMysqlConfig(credentials);
 
 async function migrateFirebaseToMysql() {
   const connection = await mysql.createConnection(dbConfig);

@@ -44,6 +44,9 @@ export const attendanceSchema = z.object({
   ], { required_error: "Selecione um cargo." }),
   city: z.string().min(2, { message: "O nome da cidade deve ter pelo menos 2 caracteres." }),
   shift: z.enum(['Manhã', 'Tarde'], { required_error: "Selecione um turno." }),
+  totvs: z.string().optional(),
+  etda: z.string().optional(),
+  phone: z.string().optional(),
   status: z.enum(['Presente', 'Ausente', 'Justificado']).default('Presente'),
   // photoUrl aceita URLs normais ou data URLs (base64)
   photoUrl: z.string().nullable().optional(),

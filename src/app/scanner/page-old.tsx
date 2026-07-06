@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { getAttendanceRecords, updateAttendanceStatus } from "@/lib/actions";
 import type { AttendanceRecord } from "@/lib/types";
 import { BrowserMultiFormatReader } from "@zxing/library";
+import jsQR from "jsqr";
 import { AlertCircle, Camera, CheckCircle, QrCode, UserCheck, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 

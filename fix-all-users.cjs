@@ -1,75 +1,85 @@
 const admin = require('firebase-admin');
+const {
+  loadCredentials,
+  getFirebaseAdminConfig,
+  getUserByKey,
+} = require('./credentials-loader.cjs');
+
+const credentials = loadCredentials();
+const firebaseAdminConfig = getFirebaseAdminConfig(credentials);
+const userByKey = (key) => getUserByKey(credentials, key);
 
 // Inicializar Firebase Admin
-const serviceAccount = require('./reuniao-ministerial-firebase-adminsdk-fbsvc-abbe4123aa.json');
+const serviceAccount = require(firebaseAdminConfig.serviceAccountPath);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://reuniao-ministerial-default-rtdb.firebaseio.com"
+  ...(firebaseAdminConfig.projectId ? { projectId: firebaseAdminConfig.projectId } : {}),
+  ...(firebaseAdminConfig.databaseURL ? { databaseURL: firebaseAdminConfig.databaseURL } : {}),
 });
 
 // Usuários com problemas identificados
 const USERS_TO_FIX = [
   // Admins que precisam de userType
   {
-    email: 'admin@ipda.org.br',
+    email: userByKey('admin').email,
     action: 'update_claims',
     userType: 'SUPER_USER',
     role: 'admin'
   },
   {
-    email: 'marciodesk@ipda.app.br',
+    email: userByKey('marciodesk').email,
     action: 'update_claims',
     userType: 'SUPER_USER',
     role: 'admin'
   },
   // Usuários com credenciais inválidas - resetar senhas
   {
-    email: 'cadastro@ipda.app.br',
+    email: userByKey('cadastro').email,
     action: 'reset_password',
-    password: 'ipda@2025',
+    password: userByKey('cadastro').password,
     userType: 'EDITOR_USER',
     role: 'editor'
   },
   {
-    email: 'registro1@ipda.app.br',
+    email: userByKey('registro1').email,
     action: 'reset_password',
-    password: 'registro@2025',
+    password: userByKey('registro1').password,
     userType: 'EDITOR_USER',
     role: 'editor'
   },
   {
-    email: 'registro2@ipda.app.br',
+    email: userByKey('registro2').email,
     action: 'reset_password',
-    password: 'registro@2025',
+    password: userByKey('registro2').password,
     userType: 'EDITOR_USER',
     role: 'editor'
   },
   {
-    email: 'registro3@ipda.app.br',
+    email: userByKey('registro3').email,
     action: 'reset_password',
-    password: 'registro@2025',
+    password: userByKey('registro3').password,
     userType: 'EDITOR_USER',
     role: 'editor'
   },
   {
-    email: 'registro4@ipda.app.br',
+    email: userByKey('registro4').email,
     action: 'reset_password',
-    password: 'registro@2025',
+    password: userByKey('registro4').password,
     userType: 'EDITOR_USER',
     role: 'editor'
   },
   {
-    email: 'secretaria@ipda.org.br',
+    email: userByKey('secretaria').email,
     action: 'reset_password',
-    password: 'SecretariaIPDA@2025',
+    password: userByKey('secretaria').password,
     userType: 'EDITOR_USER',
     role: 'editor'
   },
   {
-    email: 'auxiliar@ipda.org.br',
+    email: userByKey('auxiliar').email,
     action: 'reset_password',
-    password: 'AuxiliarIPDA@2025',
+    password: userByKey('auxiliar').password,
     userType: 'EDITOR_USER',
     role: 'editor'
   },
@@ -113,7 +123,7 @@ async function fixAllUsers() {
         await admin.auth().updateUser(userRecord.uid, {
           password: userFix.password
         });
-        console.log(`   ✅ Senha resetada para: ${userFix.password}`);
+        console.log(`   ✅ Senha resetada (valor ocultado)`);
         
         // Definir custom claims
         const customClaims = {
@@ -179,19 +189,19 @@ function getPermissionsByType(userType) {
   switch (userType) {
     case 'SUPER_USER':
       return [
-        'dashboard', 'register', 'attendance', 'letters', 
-        'presencadecadastrados', 'edit_attendance', 'reports', 
+        'dashboard', 'scanner', 'register', 'attendance', 'letters',
+        'baptism', 'presencadecadastrados', 'edit_attendance', 'reports',
         'admin_users', 'config'
       ];
     case 'EDITOR_USER':
       return [
-        'dashboard', 'register', 'attendance', 'letters',
-        'presencadecadastrados', 'edit_attendance', 'reports'
+        'dashboard', 'scanner', 'register', 'attendance', 'letters',
+        'baptism', 'presencadecadastrados', 'edit_attendance', 'reports'
       ];
     case 'BASIC_USER':
       return [
-        'dashboard', 'register', 'attendance', 'letters',
-        'presencadecadastrados'
+        'dashboard', 'scanner', 'register', 'attendance', 'letters',
+        'baptism', 'presencadecadastrados'
       ];
     default:
       return ['dashboard'];

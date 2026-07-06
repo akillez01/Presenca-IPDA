@@ -1,9 +1,14 @@
 import { GoogleAnalytics } from '@/components/analytics/google-analytics';
-import { Toaster } from '@/components/ui/toaster';
 import '@/lib/suppress-hydration-warnings';
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { ClientLayout } from './client-layout';
 import './globals.css';
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: '#2563eb',
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://ipda.app.br'),
@@ -72,7 +77,14 @@ export default function RootLayout({
                 const originalError = console.error;
                 const originalWarn = console.warn;
                 
-                const patterns = ['darkreader', 'hydration failed', '--darkreader-inline', 'data-darkreader'];
+                const patterns = [
+                  'darkreader',
+                  'hydration failed',
+                  '--darkreader-inline',
+                  'data-darkreader',
+                  'translator-hidden',
+                  'translate-tooltip-mtz'
+                ];
                 const shouldSuppress = (msg) => {
                   if (typeof msg !== 'string') return false;
                   return patterns.some(p => msg.toLowerCase().includes(p));
@@ -93,14 +105,15 @@ export default function RootLayout({
             `,
           }}
         />
-        <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#2563eb" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="IPDA Presença" />
         <meta name="referrer" content="strict-origin-when-cross-origin" />
+        
+        {/* Desabilitar Dark Reader para evitar hydration warnings */}
+        <meta name="darkreader-lock" />
+        <meta name="color-scheme" content="light dark" />
         
         {/* Preload de fontes */}
         <link 
@@ -127,7 +140,6 @@ export default function RootLayout({
           />
         )}
         <ClientLayout>{children}</ClientLayout>
-        <Toaster />
       </body>
     </html>
   );

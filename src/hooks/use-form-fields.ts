@@ -19,16 +19,18 @@ export function useFormFieldsConfig() {
   useEffect(() => {
     const ref = doc(db, 'system', 'formFields');
     const unsubscribe = onSnapshot(ref, (snap) => {
-      let loadedFields = [];
+      let loadedFields: FormFieldConfig[] = [];
       if (snap.exists()) {
-        loadedFields = snap.data().fields || [];
+        loadedFields = Array.isArray(snap.data().fields)
+          ? (snap.data().fields as FormFieldConfig[])
+          : [];
       }
       // Verifica se já existe o campo cursoCFO
-      const hasCursoCFO = loadedFields.some(f => f.name === 'cursoCFO');
+      const hasCursoCFO = loadedFields.some((f) => f.name === 'cursoCFO');
       if (!hasCursoCFO) {
         loadedFields.push({
           name: 'cursoCFO',
-          label: 'Curso CFO',
+          label: 'Curso',
           placeholder: 'Selecione',
           type: 'select',
           required: true,

@@ -3,10 +3,11 @@
  * Implementa cache offline e sincronização de dados
  */
 
-const CACHE_NAME = 'ipda-presence-v1.0.0';
-const STATIC_CACHE_NAME = 'ipda-static-v1.0.0';
-const DYNAMIC_CACHE_NAME = 'ipda-dynamic-v1.0.0';
-const API_CACHE_NAME = 'ipda-api-v1.0.0';
+const CACHE_VERSION = 'v1.0.1';
+const CACHE_NAME = `ipda-presence-${CACHE_VERSION}`;
+const STATIC_CACHE_NAME = `ipda-static-${CACHE_VERSION}`;
+const DYNAMIC_CACHE_NAME = `ipda-dynamic-${CACHE_VERSION}`;
+const API_CACHE_NAME = `ipda-api-${CACHE_VERSION}`;
 
 // Recursos estáticos para cache
 const STATIC_ASSETS = [
@@ -286,31 +287,29 @@ async function handleAPIRequest(request) {
 }
 
 /**
- * Manipula requisições de páginas com stale-while-revalidate
+ * Manipula requisições de páginas com network-first para evitar HTML antigo após deploy
  */
 async function handlePageRequest(request) {
   try {
     const cache = await caches.open(DYNAMIC_CACHE_NAME);
-    const cachedResponse = await cache.match(request);
-    
-    // Servir cache imediatamente se disponível
-    const responsePromise = cachedResponse || fetch(request);
-    
-    // Revalidar em background
-    const networkPromise = fetch(request).then(response => {
-      if (response.status === 200) {
-        cache.put(request, response.clone());
-      }
-      return response;
-    }).catch(() => cachedResponse);
-    
-    return cachedResponse ? responsePromise : networkPromise;
+    const networkResponse = await fetch(request);
+
+    if (networkResponse.status === 200) {
+      cache.put(request, networkResponse.clone());
+    }
+
+    return networkResponse;
   } catch (error) {
     console.error('[SW] Erro ao carregar página:', error);
-    
-    // Fallback para página offline
-    const cache = await caches.open(STATIC_CACHE_NAME);
-    return cache.match('/') || new Response('Aplicação offline', { 
+
+    const dynamicCache = await caches.open(DYNAMIC_CACHE_NAME);
+    const cachedPage = await dynamicCache.match(request);
+    if (cachedPage) {
+      return cachedPage;
+    }
+
+    const staticCache = await caches.open(STATIC_CACHE_NAME);
+    return staticCache.match('/') || new Response('Aplicação offline', {
       status: 503,
       headers: { 'Content-Type': 'text/html' }
     });

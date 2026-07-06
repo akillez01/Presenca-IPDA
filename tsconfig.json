@@ -36,6 +36,9 @@
     "out/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "src/**/page_backup.tsx",
+    "src/**/page_backup.ts",
+    "api/**"
   ]
 }

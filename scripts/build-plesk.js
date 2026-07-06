@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
+import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 console.log('🚀 Iniciando build otimizado para Plesk...\n');
 
 const outputDir = path.join(process.cwd(), 'out');
+const currentFilePath = fileURLToPath(import.meta.url);
+const apiDir = path.join(process.cwd(), 'src', 'app', 'api');
+const apiBackupDir = path.join(process.cwd(), 'src', 'app', '__api-export-backup');
 
 // Função para executar comandos
 function runCommand(command, description) {
@@ -18,6 +22,37 @@ function runCommand(command, description) {
         console.error(`❌ Erro em ${description}:`, error.message);
         process.exit(1);
     }
+}
+
+function disableApiRoutesForStaticExport() {
+    if (!fs.existsSync(apiDir) && fs.existsSync(apiBackupDir)) {
+        fs.renameSync(apiBackupDir, apiDir);
+    }
+
+    if (!fs.existsSync(apiDir)) {
+        return false;
+    }
+
+    if (fs.existsSync(apiBackupDir)) {
+        fs.rmSync(apiBackupDir, { recursive: true, force: true });
+    }
+
+    fs.renameSync(apiDir, apiBackupDir);
+    console.log('📦 Rotas API temporariamente removidas para static export\n');
+    return true;
+}
+
+function restoreApiRoutesAfterBuild() {
+    if (!fs.existsSync(apiBackupDir)) {
+        return;
+    }
+
+    if (fs.existsSync(apiDir)) {
+        fs.rmSync(apiDir, { recursive: true, force: true });
+    }
+
+    fs.renameSync(apiBackupDir, apiDir);
+    console.log('✅ Rotas API restauradas após o build\n');
 }
 
 // Função para otimizar arquivos
@@ -70,14 +105,9 @@ function optimizeFiles() {
     function optimizeHtmlFile(filePath) {
         try {
             let content = fs.readFileSync(filePath, 'utf8');
-            
-            // Remover comentários HTML desnecessários
-            content = content.replace(/<!--[\s\S]*?-->/g, '');
-            
-            // Remover espaços extras
-            content = content.replace(/\s+/g, ' ');
-            
-            // Otimizar meta tags para Plesk
+
+            // Nao compacte ou normalize HTML do Next export:
+            // os scripts inline do app router carregam payload RSC sensivel a quebras/espacos.
             if (!content.includes('<meta name="robots"')) {
                 content = content.replace(
                     '<head>',
@@ -185,6 +215,8 @@ Suporte: AchillesOS - achilles.dev@exemplo.com
 
 // Executar processo completo
 async function main() {
+    let apiRoutesHandled = false;
+
     try {
         // 1. Limpar cache e arquivos de teste
         console.log('🧹 Limpando cache e arquivos de teste...');
@@ -208,22 +240,25 @@ async function main() {
                 fs.rmSync(testPath, { recursive: true });
             }
         });
-        
+
         console.log('✅ Cache e arquivos de teste limpos\n');
 
-        // 2. Build para Plesk
+        // 2. Remover APIs do App Router durante o export estático
+        apiRoutesHandled = disableApiRoutesForStaticExport();
+
+        // 3. Build para Plesk
         runCommand('BUILD_TARGET=plesk NODE_ENV=production npm run build', 'Build Next.js para Plesk');
 
-        // 3. Otimizar arquivos
+        // 4. Otimizar arquivos
         optimizeFiles();
 
-        // 4. Gerar .htaccess
+        // 5. Gerar .htaccess
         runCommand('node scripts/generate-htaccess.js', 'Geração do .htaccess');
 
-        // 5. Gerar relatório
+        // 6. Gerar relatório
         generateBuildReport();
 
-        // 6. Estatísticas finais
+        // 7. Estatísticas finais
         const stats = fs.statSync(outputDir);
         const totalSize = execSync(`du -sh ${outputDir}`, { encoding: 'utf8' }).split('\\t')[0];
 
@@ -243,13 +278,17 @@ async function main() {
 
     } catch (error) {
         console.error('❌ Erro durante o build:', error.message);
-        process.exit(1);
+        process.exitCode = 1;
+    } finally {
+        if (apiRoutesHandled || fs.existsSync(apiBackupDir)) {
+            restoreApiRoutesAfterBuild();
+        }
     }
 }
 
 // Executar se chamado diretamente
-if (require.main === module) {
+if (process.argv[1] && path.resolve(process.argv[1]) === currentFilePath) {
     main();
 }
 
-module.exports = { main, optimizeFiles, generateBuildReport };
+export { generateBuildReport, main, optimizeFiles };

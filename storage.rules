@@ -16,6 +16,18 @@ service firebase.storage {
       // Permite exclusão para usuários autenticados
       allow delete: if request.auth != null;
     }
+
+    // Regra para arquivos de batismo (foto 3x4 + documentos em imagem/PDF)
+    match /batismo-files/{recordId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+                            && request.resource.size < 10 * 1024 * 1024
+                            && (
+                              request.resource.contentType.matches('image/.*') ||
+                              request.resource.contentType == 'application/pdf'
+                            );
+      allow delete: if request.auth != null;
+    }
     
     // Regra padrão - bloqueia tudo que não corresponder às regras acima
     match /{allPaths=**} {

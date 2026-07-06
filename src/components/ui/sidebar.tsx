@@ -8,7 +8,6 @@ import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
@@ -25,6 +24,37 @@ const SIDEBAR_WIDTH = "16rem"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
+const MOBILE_BREAKPOINT = 768
+const MOBILE_DRAWER_Z = 9999
+const MOBILE_DRAWER_FALLBACK_BREAKPOINT = 1200
+
+function isCapacitorNativePlatform() {
+  if (typeof window === "undefined") return false
+  return Boolean((window as any).Capacitor?.isNativePlatform?.() || (window as any).Capacitor)
+}
+
+function shouldUseMobileSidebarLayout(isMobile: boolean) {
+  if (typeof window === "undefined") return isMobile
+
+  const isSmallViewport = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`).matches
+  const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches
+  const isAndroidUserAgent =
+    typeof navigator !== "undefined" && /android/i.test(navigator.userAgent || "")
+  const hasTouch = typeof navigator !== "undefined" && (navigator.maxTouchPoints || 0) > 0
+
+  // Android WebView pode reportar viewport "desktop" (>=768) mesmo em celular.
+  // Nesse caso, ainda queremos comportamento mobile do drawer.
+  const isTouchPhoneLikeViewport =
+    isCoarsePointer && window.innerWidth < MOBILE_DRAWER_FALLBACK_BREAKPOINT
+
+  return (
+    isMobile ||
+    isCapacitorNativePlatform() ||
+    isSmallViewport ||
+    isTouchPhoneLikeViewport ||
+    (isAndroidUserAgent && hasTouch)
+  )
+}
 
 type SidebarContext = {
   state: "expanded" | "collapsed"
@@ -90,9 +120,15 @@ const SidebarProvider = React.forwardRef<
     )
 
     // Helper to toggle the sidebar.
+    // Don't rely only on the isMobile hook value here: on some WebViews the first render can
+    // be "desktop" while CSS is already in mobile breakpoint, making the trigger look broken.
     const toggleSidebar = React.useCallback(() => {
-      return isMobile
-        ? setOpenMobile((open) => !open)
+      const shouldUseMobile = shouldUseMobileSidebarLayout(isMobile)
+
+      return shouldUseMobile
+        ? setOpenMobile((open) => {
+            return !open
+          })
         : setOpen((open) => !open)
     }, [isMobile, setOpen, setOpenMobile])
 
@@ -176,6 +212,17 @@ const Sidebar = React.forwardRef<
     ref
   ) => {
     const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+    const useMobileDrawer = shouldUseMobileSidebarLayout(isMobile)
+
+    // Evita scroll do conteudo ao abrir drawer no mobile.
+    React.useEffect(() => {
+      if (!useMobileDrawer || !openMobile) return
+      const prev = document.body.style.overflow
+      document.body.style.overflow = "hidden"
+      return () => {
+        document.body.style.overflow = prev
+      }
+    }, [openMobile, useMobileDrawer])
 
     if (collapsible === "none") {
       return (
@@ -192,69 +239,96 @@ const Sidebar = React.forwardRef<
       )
     }
 
-    if (isMobile) {
-      return (
-        <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
-          <SheetContent
+    return (
+      <>
+        {/* Mobile drawer.
+            No Android/Capacitor, o Portal do Radix (Sheet) pode falhar em alguns WebViews.
+            Mantemos uma implementacao simples e confiavel com overlay + painel fixo. */}
+        <div
+          aria-hidden={!openMobile}
+          className={cn(
+            "fixed inset-0",
+            useMobileDrawer ? "" : "hidden",
+            openMobile ? "pointer-events-auto" : "pointer-events-none"
+          )}
+          style={{ zIndex: MOBILE_DRAWER_Z - 1 }}
+        >
+          <div
+            className={cn(
+              "absolute inset-0 bg-black/60 transition-opacity duration-200",
+              openMobile ? "opacity-100" : "opacity-0"
+            )}
+            onClick={() => setOpenMobile(false)}
+          />
+          <div
             data-sidebar="sidebar"
             data-mobile="true"
-            className="w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+            className={cn(
+              "absolute inset-y-0 flex h-full w-[--sidebar-width] flex-col bg-sidebar text-sidebar-foreground shadow-xl transition-transform duration-200 will-change-transform",
+              side === "left" ? "left-0" : "right-0",
+              openMobile
+                ? "translate-x-0"
+                : side === "left"
+                  ? "-translate-x-full"
+                  : "translate-x-full",
+              className
+            )}
             style={
               {
                 "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
               } as React.CSSProperties
             }
-            side={side}
-          >
-            <SheetTitle className="sr-only">Menu de Navegação</SheetTitle>
-            <div className="flex h-full w-full flex-col">{children}</div>
-          </SheetContent>
-        </Sheet>
-      )
-    }
-
-    return (
-      <div
-        ref={ref}
-        className="group peer hidden md:block text-sidebar-foreground"
-        data-state={state}
-        data-collapsible={state === "collapsed" ? collapsible : ""}
-        data-variant={variant}
-        data-side={side}
-      >
-        {/* This is what handles the sidebar gap on desktop */}
-        <div
-          className={cn(
-            "duration-200 relative h-svh w-[--sidebar-width] bg-transparent transition-[width] ease-linear",
-            "group-data-[collapsible=offcanvas]:w-0",
-            "group-data-[side=right]:rotate-180",
-            variant === "floating" || variant === "inset"
-              ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4))]"
-              : "group-data-[collapsible=icon]:w-[--sidebar-width-icon]"
-          )}
-        />
-        <div
-          className={cn(
-            "duration-200 fixed inset-y-0 z-10 hidden h-svh w-[--sidebar-width] transition-[left,right,width] ease-linear md:flex",
-            side === "left"
-              ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
-              : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
-            // Adjust the padding for floating and inset variants.
-            variant === "floating" || variant === "inset"
-              ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4)_+2px)]"
-              : "group-data-[collapsible=icon]:w-[--sidebar-width-icon] group-data-[side=left]:border-r group-data-[side=right]:border-l",
-            className
-          )}
-          {...props}
-        >
-          <div
-            data-sidebar="sidebar"
-            className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow"
           >
             {children}
           </div>
         </div>
-      </div>
+
+        {/* Desktop sidebar */}
+        <div
+          ref={ref}
+          className={cn(
+            "group peer text-sidebar-foreground",
+            useMobileDrawer ? "hidden" : "hidden md:block"
+          )}
+          data-state={state}
+          data-collapsible={state === "collapsed" ? collapsible : ""}
+          data-variant={variant}
+          data-side={side}
+        >
+          {/* This is what handles the sidebar gap on desktop */}
+          <div
+            className={cn(
+              "duration-200 relative h-svh w-[--sidebar-width] bg-transparent transition-[width] ease-linear",
+              "group-data-[collapsible=offcanvas]:w-0",
+              "group-data-[side=right]:rotate-180",
+              variant === "floating" || variant === "inset"
+                ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4))]"
+                : "group-data-[collapsible=icon]:w-[--sidebar-width-icon]"
+            )}
+          />
+          <div
+            className={cn(
+              "duration-200 fixed inset-y-0 z-10 hidden h-svh w-[--sidebar-width] transition-[left,right,width] ease-linear md:flex",
+              side === "left"
+                ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
+                : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
+              // Adjust the padding for floating and inset variants.
+              variant === "floating" || variant === "inset"
+                ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4)_+2px)]"
+                : "group-data-[collapsible=icon]:w-[--sidebar-width-icon] group-data-[side=left]:border-r group-data-[side=right]:border-l",
+              className
+            )}
+            {...props}
+          >
+            <div
+              data-sidebar="sidebar"
+              className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow"
+            >
+              {children}
+            </div>
+          </div>
+        </div>
+      </>
     )
   }
 )
@@ -265,6 +339,7 @@ const SidebarTrigger = React.forwardRef<
   React.ComponentProps<typeof Button>
 >(({ className, onClick, ...props }, ref) => {
   const { toggleSidebar } = useSidebar()
+  const handledPointerDownRef = React.useRef(false)
 
   return (
     <Button
@@ -273,8 +348,20 @@ const SidebarTrigger = React.forwardRef<
       variant="ghost"
       size="icon"
       className={cn("h-7 w-7", className)}
+      // Em alguns WebViews Android, o click pode ser "engolido" ou atrasado.
+      // PointerDown deixa o toggle bem mais confiavel sem depender do delay do click.
+      onPointerDown={(event) => {
+        handledPointerDownRef.current = true
+        toggleSidebar()
+      }}
       onClick={(event) => {
+        if (event.defaultPrevented) return
         onClick?.(event)
+        // Se ja tratamos no pointerdown, nao toggle duas vezes (abre e fecha no mesmo toque).
+        if (handledPointerDownRef.current) {
+          handledPointerDownRef.current = false
+          return
+        }
         toggleSidebar()
       }}
       {...props}
@@ -556,7 +643,7 @@ const SidebarMenuButton = React.forwardRef<
     ref
   ) => {
     const Comp = asChild ? Slot : "button"
-    const { isMobile, state, setOpenMobile } = useSidebar()
+    const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
 
     const button = (
       <Comp
@@ -567,7 +654,8 @@ const SidebarMenuButton = React.forwardRef<
         className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
         onClick={(event) => {
           onClick?.(event)
-          if (!event.defaultPrevented && isMobile) {
+          // If the drawer is open, close it after navigating (more robust than relying on isMobile).
+          if (!event.defaultPrevented && (isMobile || openMobile)) {
             setOpenMobile(false)
           }
         }}
@@ -769,4 +857,3 @@ export {
   SidebarTrigger,
   useSidebar
 }
-

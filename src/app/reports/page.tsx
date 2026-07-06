@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAuth } from "@/hooks/use-auth";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useRealtimeReports } from "@/hooks/use-reports";
-import { updateAttendanceRecord } from "@/lib/api-actions";
+import { syncMemberProfile, updateAttendanceRecord } from "@/lib/actions";
+import { getMemberDirectoryRecords } from "@/lib/member-data";
 import type { AttendanceRecord } from "@/lib/types";
 import { Edit, FileDown, QrCode, Save, X } from "lucide-react";
 import QRCode from 'qrcode';
@@ -26,15 +27,89 @@ interface FilteredStats {
   };
 }
 
+const MANAUS_TIME_ZONE = "America/Manaus";
+
+function getManausYearMonth(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: MANAUS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(date);
+
+  const lookup = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+
+  return {
+    year: Number(lookup.year),
+    month: Number(lookup.month),
+  };
+}
+
+function isInManausMonth(value: Date | string | undefined, monthFilter: string) {
+  if (!monthFilter || !value) return true;
+
+  const [targetYear, targetMonth] = monthFilter.split("-").map(Number);
+  if (!targetYear || !targetMonth) return false;
+
+  if (!value) return false;
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+
+  const parts = getManausYearMonth(date);
+  return parts.year === targetYear && parts.month === targetMonth;
+}
+
+function formatMonthFilterLabel(monthFilter: string) {
+  if (!monthFilter) return "";
+
+  const [year, month] = monthFilter.split("-").map(Number);
+  if (!year || !month) return monthFilter;
+
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function getReferenceYear(dateFilter: string) {
+  if (dateFilter) {
+    const [year] = dateFilter.split("-").map(Number);
+    if (year) return year;
+  }
+
+  return getManausYearMonth(new Date()).year;
+}
+
+function buildMonthOptionsForYear(referenceYear: number) {
+  const { year: currentYear, month: currentMonth } = getManausYearMonth(new Date());
+  const totalMonths = referenceYear === currentYear ? currentMonth : 12;
+
+  return Array.from({ length: totalMonths }, (_, index) => {
+    const month = totalMonths - index;
+    const value = `${referenceYear}-${String(month).padStart(2, "0")}`;
+
+    return {
+      value,
+      label: formatMonthFilterLabel(value),
+    };
+  });
+}
+
 
 export default function ReportsPage() {
-  // Hooks de autenticação e dados
-  const { user } = useAuth();
+  // Hooks de dados
   const { reportData, loading, error, refreshData } = useRealtimeReports();
 
   // Estados de filtro simplificados
   const [regionFilter, setRegionFilter] = React.useState("ALL");
   const [search, setSearch] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState("todos"); // ✅ Filtro de status
+  const [dateFilter, setDateFilter] = React.useState(""); // ✅ Filtro de data pontual (mantido para retrocompatibilidade)
+  const [startDateFilter, setStartDateFilter] = React.useState("");
+  const [endDateFilter, setEndDateFilter] = React.useState("");
+  const [monthFilter, setMonthFilter] = React.useState("");
+  const [isFiltersExpanded, setIsFiltersExpanded] = React.useState(true); // ✅ Estado para expandir/minimizar
 
   // Estados para modal interativo
   const [selectedRecord, setSelectedRecord] = React.useState<AttendanceRecord | null>(null);
@@ -45,11 +120,86 @@ export default function ReportsPage() {
   const [photoPreview, setPhotoPreview] = React.useState<string | null>(null);
   const [qrCodeUrl, setQrCodeUrl] = React.useState<string | null>(null);
 
+  // Estado para membros únicos do cadastro mestre com fallback seguro para legado
+  const [allMembers, setAllMembers] = React.useState<Map<string, any>>(new Map());
+
+  React.useEffect(() => {
+    let active = true;
+
+    const loadDirectory = async () => {
+      try {
+        const members = await getMemberDirectoryRecords();
+        if (!active) return;
+
+        const membersMap = new Map<string, AttendanceRecord>();
+        members.forEach((member) => {
+          if (member.cpf) {
+            membersMap.set(member.cpf, member);
+          }
+        });
+
+        setAllMembers(membersMap);
+      } catch (directoryError) {
+        console.error("Erro ao carregar diretório de membros:", directoryError);
+        if (!active || !reportData) return;
+
+        const fallbackMap = new Map<string, AttendanceRecord>();
+        reportData.records.forEach((record) => {
+          if (record.cpf && !fallbackMap.has(record.cpf)) {
+            fallbackMap.set(record.cpf, record);
+          }
+        });
+        setAllMembers(fallbackMap);
+      }
+    };
+
+    void loadDirectory();
+
+    return () => {
+      active = false;
+    };
+  }, [reportData]);
+
   // Apenas as regiões disponíveis
   const availableRegions = React.useMemo(() => {
     if (!reportData) return [];
     return Array.from(new Set(reportData.records.map(r => r.region).filter(Boolean)));
   }, [reportData]);
+
+  // Meses disponíveis são extraídos dinamicamente dos próprios registros (todas as datas já registradas)
+  const availableMonths = React.useMemo(() => {
+    if (!reportData) return [] as { value: string; label: string }[];
+
+    const uniqueMonths = new Set<string>();
+
+    reportData.records.forEach((record) => {
+      if (!record.timestamp) return;
+      const { year, month } = getManausYearMonth(new Date(record.timestamp));
+      uniqueMonths.add(`${year}-${String(month).padStart(2, "0")}`);
+    });
+
+    return Array.from(uniqueMonths)
+      .sort((a, b) => (a > b ? -1 : 1)) // meses mais recentes primeiro
+      .map((value) => ({ value, label: formatMonthFilterLabel(value) }));
+  }, [reportData]);
+
+  React.useEffect(() => {
+    if (monthFilter && !availableMonths.some((monthOption) => monthOption.value === monthFilter)) {
+      setMonthFilter("");
+    }
+  }, [availableMonths, monthFilter]);
+
+  // Histórico completo do membro selecionado (baseado no CPF)
+  const memberHistory = React.useMemo(() => {
+    if (!selectedRecord || !selectedRecord.cpf || !reportData) return [];
+    return [...reportData.records]
+      .filter((r) => r.cpf === selectedRecord.cpf)
+      .sort((a, b) => {
+        const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return tb - ta; // mais recentes primeiro
+      });
+  }, [reportData, selectedRecord]);
 
   // 🧮 FUNÇÃO PARA CALCULAR SIMILARIDADE ENTRE STRINGS (Distância de Levenshtein)
   function calcularSimilaridade(str1: string, str2: string): number {
@@ -102,38 +252,115 @@ export default function ReportsPage() {
       .trim();
   }
 
-  // Filtragem simplificada - apenas Nome, CPF e Região
+  // Filtragem com Status e Data + Usuários Ausentes
   const filteredRecords = React.useMemo(() => {
     if (!reportData) return [];
-    return reportData.records.filter(r => {
-      // Filtro de região
+    
+    let records = reportData.records;
+
+    // 🚨 LÓGICA ESPECIAL: Se filtro "Ausente" está ativo, mostrar MEMBROS SEM registro no dia
+    if (statusFilter === "Ausente") {
+      const targetDate = dateFilter || new Date().toISOString().split('T')[0];
+      
+      // CPFs dos membros que JÁ registraram presença no dia específico
+      const registeredCPFs = new Set<string>();
+      reportData.records.forEach(r => {
+        if (!r.timestamp) return;
+        
+        const recordDate = new Date(r.timestamp);
+        const filterDate = new Date(targetDate + "T00:00:00");
+        const recordDateStr = recordDate.toLocaleDateString("pt-BR");
+        const filterDateStr = filterDate.toLocaleDateString("pt-BR");
+        
+        if (recordDateStr === filterDateStr && r.cpf) {
+          registeredCPFs.add(r.cpf);
+        }
+      });
+      
+      // Criar registros virtuais para membros que NÃO registraram no dia
+      const absentMembers = Array.from(allMembers.entries())
+        .filter(([cpf]) => cpf && !registeredCPFs.has(cpf))
+        .map(([cpf, member]) => ({
+          id: `absent-${cpf}`,
+          cpf: member.cpf,
+          fullName: member.fullName,
+          status: 'Ausente',
+          region: member.region,
+          churchPosition: member.churchPosition,
+          pastorName: member.pastorName,
+          reclassification: member.reclassification,
+          city: member.city,
+          shift: member.shift,
+          timestamp: new Date(targetDate + "T00:00:00"),
+          photoUrl: member.photoUrl,
+        } as AttendanceRecord));
+      
+      records = absentMembers;
+    } else {
+      // Filtro normal de status (Presente, Justificado, etc.)
+      records = records.filter(r => {
+        if (statusFilter !== "todos" && r.status !== statusFilter) {
+          return false;
+        }
+        return true;
+      });
+    }
+    
+    // ✅ Filtro de região
+    records = records.filter(r => {
       if (regionFilter !== "ALL" && !(r.region || '').toLowerCase().includes(regionFilter.toLowerCase())) {
         return false;
       }
-
-      // Busca por Nome e CPF
-      const term = search.trim().toLowerCase();
-      if (!term) return true;
-      
-      // Campos de busca: apenas nome e CPF
-      const searchableFields = [
-        r.fullName || '', // Nome Completo
-        r.cpf || '', // CPF original
-        (r.cpf || '').replace(/\D/g, ''), // CPF só números
-      ];
-      
-      // Verifica se o termo está presente em qualquer campo de busca
-      const found = searchableFields.some(field => {
-        const fieldStr = String(field).toLowerCase().trim();
-        if (!fieldStr) return false;
-        
-        // Busca simples por inclusão
-        return fieldStr.includes(term);
-      });
-      
-      return found;
+      return true;
     });
-  }, [reportData, regionFilter, search]);
+
+    // ✅ Filtro de data exata (legado) para quem ainda usa o campo único
+    if (dateFilter && statusFilter !== "Ausente") {
+      records = records.filter(r => {
+        if (!r.timestamp) return false;
+        const recordDate = new Date(r.timestamp);
+        const filterDate = new Date(dateFilter + "T00:00:00");
+        return recordDate.toLocaleDateString("pt-BR") === filterDate.toLocaleDateString("pt-BR");
+      });
+    }
+
+    // ✅ Novo filtro por intervalo de datas (início/fim)
+    if ((startDateFilter || endDateFilter) && statusFilter !== "Ausente") {
+      const start = startDateFilter ? new Date(startDateFilter + "T00:00:00") : null;
+      const end = endDateFilter ? new Date(endDateFilter + "T23:59:59") : null;
+
+      records = records.filter((r) => {
+        if (!r.timestamp) return false;
+        const recordDate = new Date(r.timestamp);
+        if (start && recordDate < start) return false;
+        if (end && recordDate > end) return false;
+        return true;
+      });
+    }
+
+    if (monthFilter) {
+      records = records.filter((record) => isInManausMonth(record.timestamp, monthFilter));
+    }
+
+    // ✅ Busca por Nome e CPF
+    const term = search.trim().toLowerCase();
+    if (term) {
+      records = records.filter(r => {
+        const searchableFields = [
+          r.fullName || '',
+          r.cpf || '',
+          (r.cpf || '').replace(/\D/g, ''),
+        ];
+        
+        return searchableFields.some(field => {
+          const fieldStr = String(field).toLowerCase().trim();
+          return fieldStr && fieldStr.includes(term);
+        });
+      });
+    }
+    
+    return records;
+  }, [reportData, regionFilter, search, statusFilter, dateFilter, allMembers, monthFilter]);
 
   // Estatísticas filtradas
   const filteredStats = React.useMemo(() => {
@@ -148,13 +375,26 @@ export default function ReportsPage() {
 
   // Estado de filtro simplificado
   const isFilterActive = React.useMemo(() => {
-    return regionFilter !== "ALL" || search.trim() !== "";
-  }, [regionFilter, search]);
+    return (
+      regionFilter !== "ALL" ||
+      search.trim() !== "" ||
+      statusFilter !== "todos" ||
+      dateFilter !== "" ||
+      monthFilter !== "" ||
+      startDateFilter !== "" ||
+      endDateFilter !== ""
+    );
+  }, [dateFilter, endDateFilter, monthFilter, regionFilter, search, startDateFilter, statusFilter]);
 
   // Função para limpar todos os filtros
   function clearAllFilters() {
     setRegionFilter("ALL");
     setSearch("");
+    setStatusFilter("todos"); // ✅ Limpar filtro de status
+    setDateFilter(""); // ✅ Limpar filtro de data
+    setStartDateFilter("");
+    setEndDateFilter("");
+    setMonthFilter("");
   }
 
   // ===== FUNÇÕES DO MODAL INTERATIVO =====
@@ -224,6 +464,14 @@ export default function ReportsPage() {
     setIsSaving(true);
     try {
       await updateAttendanceRecord(selectedRecord.id, editFields);
+      await syncMemberProfile(
+        {
+          ...selectedRecord,
+          ...editFields,
+          cpf: (editFields.cpf ?? selectedRecord.cpf ?? "").toString(),
+        },
+        { lastPresenceAt: selectedRecord.lastPresenceAt ?? selectedRecord.timestamp ?? null }
+      );
       
       // Atualizar dados locais
       refreshData();
@@ -247,6 +495,194 @@ export default function ReportsPage() {
     setPhotoPreview(null);
     setQrCodeUrl(null);
   };
+
+  // Funções de exportação para PDF
+  function exportFilteredDataPDF() {
+    if (!reportData || filteredRecords.length === 0) {
+      alert("Nenhum registro para exportar");
+      return;
+    }
+
+    try {
+      // Criar HTML para o PDF
+      let html = `
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { font-family: Arial, sans-serif; margin: 20px; }
+              h1 { text-align: center; color: #333; }
+              .meta { text-align: center; color: #666; margin: 10px 0; font-size: 12px; }
+              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+              th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+              th { background-color: #4CAF50; color: white; }
+              tr:nth-child(even) { background-color: #f2f2f2; }
+            </style>
+          </head>
+          <body>
+            <h1>RELATÓRIO DE PRESENÇA</h1>
+            <div class="meta">
+              <p>Data de Geração: ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+              <p>Total de Registros: ${filteredRecords.length}</p>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>CPF</th>
+                  <th>Pastor</th>
+                  <th>Cargo</th>
+                  <th>Status</th>
+                  <th>Data</th>
+                </tr>
+              </thead>
+              <tbody>
+      `;
+
+      filteredRecords.forEach((record) => {
+        const statusColor = record.status === "Presente" ? "#4CAF50" : record.status === "Ausente" ? "#f44336" : "#FF9800";
+        html += `
+          <tr>
+            <td>${record.fullName || ""}</td>
+            <td>${record.cpf || ""}</td>
+            <td>${record.pastorName || ""}</td>
+            <td>${record.churchPosition || ""}</td>
+            <td style="background-color: ${statusColor}; color: white;">${record.status || "Presente"}</td>
+            <td>${record.timestamp ? new Date(record.timestamp).toLocaleDateString("pt-BR") : ""}</td>
+          </tr>
+        `;
+      });
+
+      html += `
+              </tbody>
+            </table>
+          </body>
+        </html>
+      `;
+
+      // Usar a função print do navegador para salvar como PDF
+      const printWindow = window.open("", "", "height=400,width=800");
+      if (printWindow) {
+        printWindow.document.write(html);
+        printWindow.document.close();
+        printWindow.focus();
+        // Aguardar um pouco para garantir que o documento foi carregado
+        setTimeout(() => {
+          printWindow.print();
+        }, 250);
+      }
+    } catch (error) {
+      console.error("Erro ao exportar PDF:", error);
+      alert("Erro ao gerar PDF. Tente novamente.");
+    }
+  }
+
+  function exportSummaryDataPDF() {
+    if (!reportData) {
+      alert("Nenhum dado para exportar");
+      return;
+    }
+
+    try {
+      // Criar HTML para o PDF
+      let html = `
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
+              h1 { text-align: center; color: #333; }
+              .meta { text-align: center; color: #666; margin: 10px 0; font-size: 12px; }
+              .stats { margin: 20px 0; }
+              .stat-item { 
+                display: inline-block; 
+                width: 45%; 
+                margin: 10px 2.5%; 
+                padding: 15px; 
+                background-color: white; 
+                border-radius: 5px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+              }
+              .stat-label { font-weight: bold; color: #666; }
+              .stat-value { font-size: 24px; color: #4CAF50; margin-top: 5px; }
+              .section { margin-top: 30px; }
+              .section-title { 
+                font-weight: bold; 
+                font-size: 14px; 
+                color: white; 
+                background-color: #4CAF50; 
+                padding: 10px; 
+                margin: 10px 0 5px 0;
+              }
+              .item { padding: 8px; border-bottom: 1px solid #ddd; }
+            </style>
+          </head>
+          <body>
+            <h1>RESUMO ESTATÍSTICO DE PRESENÇA</h1>
+            <div class="meta">
+              <p>Gerado em: ${new Date().toLocaleDateString('pt-BR')}</p>
+            </div>
+            <div class="stats">
+              <div class="stat-item">
+                <div class="stat-label">Total de Registros</div>
+                <div class="stat-value">${reportData.summary.total}</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-label">Presentes</div>
+                <div class="stat-value" style="color: #4CAF50;">${reportData.summary.present}</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-label">Ausentes</div>
+                <div class="stat-value" style="color: #f44336;">${reportData.summary.absent}</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-label">Justificados</div>
+                <div class="stat-value" style="color: #FF9800;">${reportData.summary.justified || 0}</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-label">Taxa de Presença</div>
+                <div class="stat-value" style="color: #2196F3;">${reportData.summary.attendanceRate}%</div>
+              </div>
+            </div>
+      `;
+
+      if (reportData.byShift && Object.keys(reportData.byShift).length > 0) {
+        html += `<div class="section"><div class="section-title">Distribuição por Turno</div>`;
+        Object.entries(reportData.byShift).forEach(([turno, count]) => {
+          html += `<div class="item">${turno}: <strong>${count}</strong></div>`;
+        });
+        html += `</div>`;
+      }
+
+      if (reportData.byRegion && Object.keys(reportData.byRegion).length > 0) {
+        html += `<div class="section"><div class="section-title">Distribuição por Região</div>`;
+        Object.entries(reportData.byRegion).forEach(([regiao, count]) => {
+          html += `<div class="item">${regiao}: <strong>${count}</strong></div>`;
+        });
+        html += `</div>`;
+      }
+
+      html += `
+          </body>
+        </html>
+      `;
+
+      // Usar a função print do navegador para salvar como PDF
+      const printWindow = window.open("", "", "height=400,width=800");
+      if (printWindow) {
+        printWindow.document.write(html);
+        printWindow.document.close();
+        printWindow.focus();
+        // Aguardar um pouco para garantir que o documento foi carregado
+        setTimeout(() => {
+          printWindow.print();
+        }, 250);
+      }
+    } catch (error) {
+      console.error("Erro ao exportar PDF:", error);
+      alert("Erro ao gerar PDF. Tente novamente.");
+    }
+  }
 
   // Funções de exportação (implementação igual ao original)
   function exportFilteredData() {
@@ -305,8 +741,8 @@ export default function ReportsPage() {
 
   // Renderização principal (mantém o JSX original)
   return (
-    <div className="flex flex-col gap-4 sm:gap-6 lg:gap-8">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+    <div className="flex flex-col gap-4 sm:gap-6 lg:gap-8 animate-in fade-in duration-500" suppressHydrationWarning>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 animate-in slide-in-from-top duration-500">
         <h1 className="text-lg sm:text-xl lg:text-2xl font-bold">
           <span className="hidden sm:inline">Relatórios de Presença</span>
           <span className="sm:hidden">Relatórios</span>
@@ -323,104 +759,230 @@ export default function ReportsPage() {
         <div className="bg-blue-100 text-blue-700 p-2 sm:p-3 rounded text-sm">Carregando dados...</div>
       )}
 
-      {/* Filtros */}
-      <div className="w-full max-w-6xl mx-auto">
-        <div className="bg-white rounded-lg shadow p-3 sm:p-4 lg:p-6">
-          <h2 className="text-sm sm:text-lg font-bold mb-3 sm:mb-4">
-            <span className="hidden sm:inline">Filtros de Relatórios</span>
-            <span className="sm:hidden">Filtros</span>
-          </h2>
-        
-        {/* Filtros Simplificados - apenas Nome, CPF e Região */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-          <div className="p-3 bg-blue-50 rounded-lg">
-            <label className="block text-xs sm:text-sm font-medium mb-2">
-              <span className="hidden sm:inline">🔍 Buscar por Nome ou CPF</span>
-              <span className="sm:hidden">🔍 Buscar</span>
-            </label>
-            <input 
-              type="text" 
-              value={search} 
-              onChange={e => setSearch(e.target.value)} 
-              placeholder="Digite o nome ou CPF..." 
-              className="w-full border rounded px-2 sm:px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          
-          <div className="p-3 bg-green-50 rounded-lg">
-            <label className="block text-xs sm:text-sm font-medium mb-2">
-              <span className="hidden sm:inline">📍 Filtrar por Região</span>
-              <span className="sm:hidden">📍 Região</span>
-            </label>
-            <select 
-              value={regionFilter} 
-              onChange={e => setRegionFilter(e.target.value)} 
-              className="w-full border rounded px-2 sm:px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-            >
-              <option value="ALL">Todas as Regiões</option>
-              {availableRegions.map(region => (
-                <option key={region} value={region}>{region}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Botões de Ação */}
-        <div className="flex gap-2 flex-wrap pt-3 border-t mt-3">
-          <button onClick={clearAllFilters} className="bg-gray-200 hover:bg-gray-300 px-3 sm:px-4 py-2 rounded text-xs sm:text-sm flex-1 sm:flex-none">
-            <span className="hidden sm:inline">🗑️ Limpar Filtros</span>
-            <span className="sm:hidden">🗑️ Limpar</span>
-          </button>
-          <button onClick={refreshData} className="bg-blue-600 hover:bg-blue-700 text-white px-3 sm:px-4 py-2 rounded text-xs sm:text-sm flex-1 sm:flex-none">
-            <span className="hidden sm:inline">🔄 Atualizar Dados</span>
-            <span className="sm:hidden">🔄 Atualizar</span>
-          </button>
-          <button 
-            onClick={exportFilteredData} 
-            disabled={!reportData || filteredRecords.length === 0} 
-            className="bg-green-600 hover:bg-green-700 text-white px-3 sm:px-4 py-2 rounded text-xs sm:text-sm disabled:bg-gray-400 disabled:cursor-not-allowed flex-1 sm:flex-none"
+      {/* Filtros Colapsáveis */}
+      <div className="w-full max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom duration-700" style={{ animationDelay: '100ms' }}>
+        <div className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow duration-300">
+          {/* Header Colapsável */}
+          <div 
+            className="p-3 sm:p-6 cursor-pointer hover:bg-gray-50 hover:scale-[1.01] transition-all duration-300 rounded-t-lg"
+            onClick={() => setIsFiltersExpanded(!isFiltersExpanded)}
           >
-            <span className="hidden sm:inline">📥 Exportar Filtrado</span>
-            <span className="sm:hidden">📥 Filtrado</span>
-          </button>
-          <button 
-            onClick={exportSummaryData} 
-            disabled={!reportData} 
-            className="bg-purple-600 hover:bg-purple-700 text-white px-3 sm:px-4 py-2 rounded text-xs sm:text-sm disabled:bg-gray-400 disabled:cursor-not-allowed flex-1 sm:flex-none"
-          >
-            <span className="hidden sm:inline">📋 Exportar Resumo</span>
-            <span className="sm:hidden">📋 Resumo</span>
-          </button>
-        </div>
-
-        {/* Resumo de filtros ativos */}
-        {isFilterActive && (
-          <div className="mt-3 p-3 bg-blue-50 rounded-lg border-l-4 border-blue-400">
-            <p className="text-xs sm:text-sm text-blue-700 font-medium mb-2">
-              <span className="hidden sm:inline">🔍 Filtros ativos - Encontrados: <strong>{filteredRecords.length}</strong> registros</span>
-              <span className="sm:hidden">🔍 <strong>{filteredRecords.length}</strong> encontrados</span>
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs text-blue-600">
-              {search && (
-                <div className="truncate" title={`Busca por Nome/CPF: "${search}"`}>
-                  <span className="hidden sm:inline">• Busca por Nome/CPF: "{search}"</span>
-                  <span className="sm:hidden">• Busca: "{search.substring(0, 15)}{search.length > 15 ? '...' : ''}"</span>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <h2 className="text-sm sm:text-lg font-bold flex items-center gap-2">
+                  <span className="text-lg">{isFiltersExpanded ? "🔽" : "▶️"}</span>
+                  <span className="hidden sm:inline">Filtros de Relatórios</span>
+                  <span className="sm:hidden">Filtros</span>
+                </h2>
+                <div className="text-xs sm:text-sm text-gray-600 mt-1">
+                  {isFiltersExpanded ? (
+                    "Combine filtros por status, data, mês, região e busca textual"
+                  ) : (
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <span className="font-semibold text-gray-900">{filteredRecords.length} registro(s)</span>
+                      {search && <span className="bg-blue-100 px-2 py-0.5 rounded text-xs">🔍 "{search}"</span>}
+                      {dateFilter && <span className="bg-purple-100 px-2 py-0.5 rounded text-xs">📅 {new Date(dateFilter + "T00:00:00").toLocaleDateString("pt-BR", { day: '2-digit', month: '2-digit' })}</span>}
+                      {(startDateFilter || endDateFilter) && (
+                        <span className="bg-pink-100 px-2 py-0.5 rounded text-xs">
+                          ⏳
+                          {startDateFilter ? ` ${new Date(startDateFilter + "T00:00:00").toLocaleDateString("pt-BR")}` : ' início livre'}
+                          {" → "}
+                          {endDateFilter ? new Date(endDateFilter + "T00:00:00").toLocaleDateString("pt-BR") : ' sem fim'}
+                        </span>
+                      )}
+                      {statusFilter !== "todos" && <span className="bg-green-100 px-2 py-0.5 rounded text-xs">✅ {statusFilter}</span>}
+                      {regionFilter !== "ALL" && <span className="bg-orange-100 px-2 py-0.5 rounded text-xs truncate max-w-[120px]">📍 {regionFilter}</span>}
+                      {monthFilter && (
+                        <span className="bg-amber-100 px-2 py-0.5 rounded text-xs truncate max-w-[220px]">
+                          🗓️ {formatMonthFilterLabel(monthFilter)}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
-              )}
-              {regionFilter !== "ALL" && (
-                <div className="truncate" title={`Região: "${regionFilter}"`}>
-                  • Região: "{regionFilter}"
-                </div>
-              )}
+              </div>
+              <button
+                className="shrink-0 bg-gray-200 hover:bg-gray-300 px-3 py-1.5 rounded text-xs sm:text-sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsFiltersExpanded(!isFiltersExpanded);
+                }}
+              >
+                {isFiltersExpanded ? "Ocultar" : "Mostrar"}
+              </button>
             </div>
           </div>
-        )}
+
+          {/* Conteúdo dos Filtros */}
+          <div className={`transition-all duration-300 ease-in-out overflow-hidden ${isFiltersExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+            <div className="p-3 sm:p-6 pt-0 space-y-4">
+              {/* Primeira Linha: Busca, Status, Mês */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
+                  <label className="block text-xs sm:text-sm font-medium mb-2 text-gray-900 dark:text-gray-100">
+                    🔍 Buscar por Nome ou CPF
+                  </label>
+                  <input 
+                    type="text" 
+                    value={search} 
+                    onChange={e => setSearch(e.target.value)} 
+                    placeholder="Digite o nome ou CPF..." 
+                    className="w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border rounded px-2 sm:px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg">
+                  <label className="block text-xs sm:text-sm font-medium mb-2 text-gray-900 dark:text-gray-100">
+                    ✅ Filtrar por Status
+                  </label>
+                  <select 
+                    value={statusFilter} 
+                    onChange={e => setStatusFilter(e.target.value)} 
+                    className="w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border rounded px-2 sm:px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="Presente">Presente</option>
+                    <option value="Justificado">Justificado</option>
+                    <option value="Ausente">Ausente</option>
+                  </select>
+                </div>
+
+                <div className="p-3 bg-amber-50 dark:bg-amber-950 rounded-lg">
+                  <label className="block text-xs sm:text-sm font-medium mb-2 text-gray-900 dark:text-gray-100">
+                    🗓️ Filtrar por Mês
+                  </label>
+                  <Select value={monthFilter || "__all__"} onValueChange={(value) => setMonthFilter(value === "__all__" ? "" : value)}>
+                    <SelectTrigger className="w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border text-xs sm:text-sm focus:ring-2 focus:ring-amber-500">
+                      <SelectValue placeholder="Filtrar por mês" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">Todos os meses</SelectItem>
+                      {availableMonths.map((monthOption) => (
+                        <SelectItem key={monthOption.value} value={monthOption.value}>
+                          {monthOption.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Segunda Linha: Região e data */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
+                <div className="p-3 bg-purple-50 dark:bg-purple-950 rounded-lg">
+                  <label className="block text-xs sm:text-sm font-medium mb-2 text-gray-900 dark:text-gray-100">
+                    📅 Filtrar por Data
+                  </label>
+                  <input 
+                    type="date" 
+                    value={dateFilter} 
+                    onChange={e => setDateFilter(e.target.value)} 
+                    className="w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border rounded px-2 sm:px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+
+                <div className="p-3 bg-pink-50 dark:bg-pink-950 rounded-lg">
+                  <label className="block text-xs sm:text-sm font-medium mb-2 text-gray-900 dark:text-gray-100">
+                    ⏳ Intervalo de Datas (início → fim)
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      type="date"
+                      value={startDateFilter}
+                      onChange={(e) => setStartDateFilter(e.target.value)}
+                      className="w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border rounded px-2 sm:px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      placeholder="Data inicial"
+                    />
+                    <input
+                      type="date"
+                      value={endDateFilter}
+                      onChange={(e) => setEndDateFilter(e.target.value)}
+                      className="w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border rounded px-2 sm:px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      placeholder="Data final"
+                    />
+                  </div>
+                </div>
+
+                <div className="p-3 bg-orange-50 dark:bg-orange-950 rounded-lg">
+                  <label className="block text-xs sm:text-sm font-medium mb-2 text-gray-900 dark:text-gray-100">
+                    📍 Filtrar por Região
+                  </label>
+                  <select 
+                    value={regionFilter} 
+                    onChange={e => setRegionFilter(e.target.value)} 
+                    className="w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border rounded px-2 sm:px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  >
+                    <option value="ALL">Todas as Regiões</option>
+                    {availableRegions.map(region => (
+                      <option key={region} value={region}>{region}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Aviso especial para filtro "Ausente" */}
+              {statusFilter === "Ausente" && (
+                <div className="p-3 bg-red-50 border-l-4 border-red-400 rounded">
+                  <p className="text-xs sm:text-sm text-red-700">
+                    <strong>⚠️ Modo Ausentes:</strong> Mostrando membros que <strong>NÃO registraram presença</strong> no dia {dateFilter ? new Date(dateFilter + "T00:00:00").toLocaleDateString("pt-BR") : "de hoje"}.
+                    <br />
+                    <small>Base: {allMembers.size} membros do cadastro mestre com fallback seguro para legado.</small>
+                  </p>
+                </div>
+              )}
+
+              {/* Botões de Ação */}
+              <div className="flex gap-2 flex-wrap pt-3 border-t">
+                <button onClick={clearAllFilters} className="bg-gray-200 hover:bg-gray-300 px-3 sm:px-4 py-2 rounded text-xs sm:text-sm flex-1 sm:flex-none">
+                  <span className="hidden sm:inline">🗑️ Limpar Filtros</span>
+                  <span className="sm:hidden">🗑️ Limpar</span>
+                </button>
+                <button onClick={refreshData} className="bg-blue-600 hover:bg-blue-700 text-white px-3 sm:px-4 py-2 rounded text-xs sm:text-sm flex-1 sm:flex-none">
+                  <span className="hidden sm:inline">🔄 Atualizar Dados</span>
+                  <span className="sm:hidden">🔄 Atualizar</span>
+                </button>
+                <button 
+                  onClick={exportFilteredData} 
+                  disabled={!reportData || filteredRecords.length === 0} 
+                  className="bg-green-600 hover:bg-green-700 text-white px-3 sm:px-4 py-2 rounded text-xs sm:text-sm disabled:bg-gray-400 disabled:cursor-not-allowed flex-1 sm:flex-none"
+                >
+                  <span className="hidden sm:inline">📥 Exportar CSV Filtrado</span>
+                  <span className="sm:hidden">📥 CSV Filtrado</span>
+                </button>
+                <button 
+                  onClick={exportSummaryData} 
+                  disabled={!reportData} 
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-3 sm:px-4 py-2 rounded text-xs sm:text-sm disabled:bg-gray-400 disabled:cursor-not-allowed flex-1 sm:flex-none"
+                >
+                  <span className="hidden sm:inline">📋 Exportar CSV Resumo</span>
+                  <span className="sm:hidden">📋 CSV Resumo</span>
+                </button>
+                <button 
+                  onClick={exportFilteredDataPDF} 
+                  disabled={!reportData || filteredRecords.length === 0} 
+                  className="bg-red-600 hover:bg-red-700 text-white px-3 sm:px-4 py-2 rounded text-xs sm:text-sm disabled:bg-gray-400 disabled:cursor-not-allowed flex-1 sm:flex-none"
+                >
+                  <span className="hidden sm:inline">📄 Exportar PDF Filtrado</span>
+                  <span className="sm:hidden">📄 PDF Filtrado</span>
+                </button>
+                <button 
+                  onClick={exportSummaryDataPDF} 
+                  disabled={!reportData} 
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 sm:px-4 py-2 rounded text-xs sm:text-sm disabled:bg-gray-400 disabled:cursor-not-allowed flex-1 sm:flex-none"
+                >
+                  <span className="hidden sm:inline">📊 Exportar PDF Resumo</span>
+                  <span className="sm:hidden">📊 PDF Resumo</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Resumo dos dados filtrados */}
       <div className="w-full max-w-6xl mx-auto">
         <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-3">
-          <div className="text-center p-3 sm:p-4 border rounded-lg bg-green-50">
+          <div className="text-center p-3 sm:p-4 border rounded-lg bg-green-50 hover:shadow-lg hover:-translate-y-1 transition-all animate-in fade-in slide-in-from-bottom duration-500" style={{ animationDelay: '300ms' }}>
             <div className="text-lg sm:text-xl lg:text-2xl font-bold text-green-600">
               {isFilterActive && filteredStats ? 
                 `${((filteredStats.summary.present / (filteredStats.summary.total || 1)) * 100).toFixed(1)}%` :
@@ -431,7 +993,7 @@ export default function ReportsPage() {
               <span className="sm:hidden">Presentes</span>
             </div>
           </div>
-          <div className="text-center p-3 sm:p-4 border rounded-lg bg-yellow-50">
+          <div className="text-center p-3 sm:p-4 border rounded-lg bg-yellow-50 hover:shadow-lg hover:-translate-y-1 transition-all animate-in fade-in slide-in-from-bottom duration-500" style={{ animationDelay: '350ms' }}>
             <div className="text-lg sm:text-xl lg:text-2xl font-bold text-yellow-600">
               {isFilterActive && filteredStats ? 
                 `${((filteredStats.summary.justified / (filteredStats.summary.total || 1)) * 100).toFixed(1)}%` :
@@ -442,7 +1004,7 @@ export default function ReportsPage() {
               <span className="sm:hidden">Justificados</span>
             </div>
           </div>
-          <div className="text-center p-3 sm:p-4 border rounded-lg bg-red-50">
+          <div className="text-center p-3 sm:p-4 border rounded-lg bg-red-50 hover:shadow-lg hover:-translate-y-1 transition-all animate-in fade-in slide-in-from-bottom duration-500" style={{ animationDelay: '400ms' }}>
             <div className="text-lg sm:text-xl lg:text-2xl font-bold text-red-600">
               {isFilterActive && filteredStats ? 
                 `${((filteredStats.summary.absent / (filteredStats.summary.total || 1)) * 100).toFixed(1)}%` :
@@ -457,8 +1019,8 @@ export default function ReportsPage() {
       </div>
 
       {/* Tabela de registros filtrados */}
-      <div className="w-full max-w-6xl mx-auto">
-        <div className="bg-white rounded-lg shadow border p-3 sm:p-4">
+      <div className="w-full max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom duration-700" style={{ animationDelay: '450ms' }}>
+        <div className="bg-white rounded-lg shadow border p-3 sm:p-4 hover:shadow-lg transition-shadow duration-300">
           <h2 className="text-lg sm:text-xl lg:text-2xl font-semibold mb-3 sm:mb-4">
             Registros Filtrados ({filteredRecords.length})
           </h2>
@@ -514,7 +1076,7 @@ export default function ReportsPage() {
                 </thead>
                 <tbody>
                   {filteredRecords.map((r, idx) => (
-                    <tr key={r.id || idx} className="hover:bg-muted/25 border-b last:border-b-0">
+                    <tr key={r.id || idx} className="hover:bg-blue-50 border-b last:border-b-0 animate-in fade-in slide-in-from-right duration-500 transition-colors" style={{ animationDelay: `${idx * 30}ms` }}>
                       <td className="p-1 sm:p-2 text-xs sm:text-sm">
                         <button 
                           onClick={() => handleNameClick(r)}
@@ -639,7 +1201,18 @@ export default function ReportsPage() {
                 {/* Coluna Esquerda - Informações Pessoais */}
                 <div className="space-y-4">
                   <h3 className="font-semibold text-lg border-b pb-2">📋 Informações Pessoais</h3>
-                  
+
+                  {/* Foto do Membro */}
+                  {!isEditMode && (selectedRecord.photoUrl || photoPreview) && (
+                    <div className="flex justify-center mb-2">
+                      <img
+                        src={photoPreview || selectedRecord.photoUrl || ""}
+                        alt={`Foto de ${selectedRecord.fullName}`}
+                        className="w-28 h-28 object-cover rounded-full border-4 border-blue-200 shadow"
+                      />
+                    </div>
+                  )}
+
                   {/* Nome Completo */}
                   <div>
                     <Label>Nome Completo</Label>
@@ -736,6 +1309,51 @@ export default function ReportsPage() {
                       />
                     ) : (
                       <p className="font-medium">{selectedRecord.reclassification}</p>
+                    )}
+                  </div>
+
+                  {/* TOTVS */}
+                  <div>
+                    <Label>TOTVS</Label>
+                    {isEditMode ? (
+                      <Input
+                        value={editFields.totvs || ''}
+                        onChange={(e) => handleEditFieldChange('totvs', e.target.value)}
+                        placeholder="Digite o código TOTVS"
+                        className="mt-1"
+                      />
+                    ) : (
+                      <p className="font-medium">{selectedRecord.totvs || '-'}</p>
+                    )}
+                  </div>
+
+                  {/* ETDA */}
+                  <div>
+                    <Label>ETDA</Label>
+                    {isEditMode ? (
+                      <Input
+                        value={editFields.etda || ''}
+                        onChange={(e) => handleEditFieldChange('etda', e.target.value)}
+                        placeholder="Digite o código ETDA"
+                        className="mt-1"
+                      />
+                    ) : (
+                      <p className="font-medium">{selectedRecord.etda || '-'}</p>
+                    )}
+                  </div>
+
+                  {/* Telefone */}
+                  <div>
+                    <Label>📞 Telefone / WhatsApp</Label>
+                    {isEditMode ? (
+                      <Input
+                        value={(editFields as any).phone || ''}
+                        onChange={(e) => handleEditFieldChange('phone', e.target.value)}
+                        placeholder="(XX) XXXXX-XXXX"
+                        className="mt-1"
+                      />
+                    ) : (
+                      <p className="font-medium">{(selectedRecord as any).phone || '-'}</p>
                     )}
                   </div>
 
@@ -839,12 +1457,69 @@ export default function ReportsPage() {
                   )}
                 </div>
               </div>
+
+              {/* Histórico de Presenças do Membro */}
+              <div className="space-y-3 border rounded-lg p-3 sm:p-4 bg-gray-50">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-lg flex items-center gap-2">
+                    🗂️ Histórico de Presenças (CPF: {selectedRecord.cpf || 'n/d'})
+                  </h3>
+                  <span className="text-sm text-gray-600">
+                    {memberHistory.length} registro(s)
+                  </span>
+                </div>
+
+                {memberHistory.length === 0 ? (
+                  <p className="text-sm text-gray-600">Nenhum histórico encontrado para este CPF.</p>
+                ) : (
+                  <div className="max-h-72 overflow-y-auto border rounded-md bg-white">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          <th className="text-left p-2">Data/Hora</th>
+                          <th className="text-left p-2">Status</th>
+                          <th className="text-left p-2">Região</th>
+                          <th className="text-left p-2">Cidade</th>
+                          <th className="text-left p-2">Turno</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {memberHistory.map((h, idx) => (
+                          <tr key={h.id || idx} className={idx % 2 ? "bg-gray-50" : ""}>
+                            <td className="p-2 whitespace-nowrap">
+                              {h.timestamp
+                                ? new Date(h.timestamp).toLocaleDateString("pt-BR") +
+                                  " " +
+                                  new Date(h.timestamp).toLocaleTimeString("pt-BR")
+                                : "-"}
+                            </td>
+                            <td className="p-2 whitespace-nowrap">
+                              <Badge
+                                variant={
+                                  h.status === "Presente"
+                                    ? "default"
+                                    : h.status === "Justificado"
+                                    ? "secondary"
+                                    : "destructive"
+                                }
+                              >
+                                {h.status || "Presente"}
+                              </Badge>
+                            </td>
+                            <td className="p-2">{h.region || "-"}</td>
+                            <td className="p-2">{h.city || "-"}</td>
+                            <td className="p-2">{h.shift || "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
-      </div>
     </div>
   );
 }
-

@@ -15,10 +15,18 @@ if (window.location.pathname === '/login' || window.location.pathname === '/logi
       
       if (emailInput && passwordInput && loginButton) {
         console.log('✅ Campos de login encontrados');
+
+        const email = window.prompt('Email para teste de login automático:', 'admin@ipda.org.br');
+        const password = window.prompt('Senha para teste (não será salva):');
+
+        if (!email || !password) {
+          console.error('❌ Teste cancelado: email/senha não informados');
+          return;
+        }
         
         // Preencher credenciais
-        emailInput.value = 'admin@ipda.org.br';
-        passwordInput.value = 'IPDA@2025Admin';
+        emailInput.value = email;
+        passwordInput.value = password;
         
         // Simular eventos de input para React
         emailInput.dispatchEvent(new Event('input', { bubbles: true }));

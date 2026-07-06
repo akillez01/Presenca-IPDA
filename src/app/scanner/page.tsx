@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getAllPresencas, getAttendanceByCpf, updateAttendanceStatus } from "@/lib/actions";
+import { getAllPresencas, getAttendanceByCpf, registerAttendanceByCpf } from "@/lib/actions";
 import type { AttendanceRecord } from "@/lib/types";
 import { BrowserMultiFormatReader } from "@zxing/library";
 import { AlertCircle, Camera, CheckCircle, Clock, QrCode, Search, UserCheck, Users, Zap } from "lucide-react";
@@ -314,7 +314,11 @@ export default function QRScannerPage() {
         return;
       }
 
-      await updateAttendanceStatus(person.id, "Presente");
+      const registerResult = await registerAttendanceByCpf(cleanCpf, "Presente");
+      if (!registerResult.success) {
+        setError(registerResult.error || 'Erro ao registrar presença.');
+        return;
+      }
 
       const novoScan = {
         cpf: person.cpf,
@@ -333,7 +337,14 @@ export default function QRScannerPage() {
       setStatus("Presente");
     } catch (err) {
       console.error('Erro ao registrar presença automaticamente:', err);
-      setError('Erro ao registrar presença.');
+      
+      // ✅ Tratamento específico para duplicação
+      const errorMessage = err instanceof Error ? err.message : "Erro ao registrar presença.";
+      if (errorMessage.includes("Duplicação bloqueada")) {
+        setError(errorMessage);
+      } else {
+        setError('Erro ao registrar presença.');
+      }
     } finally {
       setLoading(false);
       if (restartTimeoutRef.current) {
@@ -397,11 +408,15 @@ export default function QRScannerPage() {
       setError("");
       
       // Usa updateAttendanceStatus para atualizar o status da presença
-      await updateAttendanceStatus(
-        foundRecord.id, 
-        status, 
+      const registerResult = await registerAttendanceByCpf(
+        foundRecord.cpf,
+        status,
         status !== 'Presente' ? justificativa : undefined
       );
+      if (!registerResult.success) {
+        setError(registerResult.error || 'Erro ao registrar presença.');
+        return;
+      }
       
       // Adiciona aos escaneamentos recentes
       const novoScan = {
@@ -427,7 +442,14 @@ export default function QRScannerPage() {
       
     } catch (err) {
       console.error('Erro ao registrar presença:', err);
-      setError('Erro ao registrar presença.');
+      
+      // ✅ Tratamento específico para duplicação
+      const errorMessage = err instanceof Error ? err.message : "Erro ao registrar presença.";
+      if (errorMessage.includes("Duplicação bloqueada")) {
+        setError(errorMessage);
+      } else {
+        setError('Erro ao registrar presença.');
+      }
     } finally {
       setLoading(false);
     }
@@ -551,7 +573,7 @@ export default function QRScannerPage() {
                     </Button>
                   ) : (
                     <>
-                      <Button onClick={stopCamera} variant="outline" className="flex-1" size="lg">
+                      <Button onClick={() => stopCamera()} variant="outline" className="flex-1" size="lg">
                         Parar Scanner
                       </Button>
                       {availableCameras.length > 1 && (

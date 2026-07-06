@@ -9,8 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
-import { deleteAttendance, getAttendanceRecords, updateAttendanceRecord, updateAttendanceStatus } from "@/lib/actions";
+import { deleteAttendance, getAttendanceRecords, registerAttendanceByCpf, syncMemberProfile, updateAttendanceRecord } from "@/lib/actions";
 import { deleteAttendancePhoto, getStoragePathFromUrl, uploadAttendancePhoto } from "@/lib/attendance-photo";
+import { createManualBackup } from "@/lib/backup-client";
+import { auth } from "@/lib/firebase";
+import { getMemberDirectoryRecords } from "@/lib/member-data";
 import type { AttendanceRecord } from "@/lib/types";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -23,6 +26,163 @@ type PhotoSelectionState = {
   preview?: string | null;
 } | null;
 
+const MANAUS_TIME_ZONE = "America/Manaus";
+
+function getTodayManausInputDate() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: MANAUS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function parseDateSafely(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+async function getMemberDirectoryRecordsViaApi(): Promise<AttendanceRecord[]> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    return [];
+  }
+
+  try {
+    const token = await currentUser.getIdToken();
+    const response = await fetch("/api/admin/members-directory", {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.success || !Array.isArray(payload.members)) {
+      return [];
+    }
+
+    return payload.members
+      .map((member: any) => {
+        const timestamp =
+          parseDateSafely(member.lastPresenceAt) ||
+          parseDateSafely(member.updatedAt) ||
+          parseDateSafely(member.createdAt) ||
+          new Date();
+
+        return {
+          id: String(member.id || member.cpf || ""),
+          memberId: String(member.id || member.cpf || ""),
+          sourceCollection: "members",
+          timestamp,
+          createdAt: parseDateSafely(member.createdAt) || timestamp,
+          updatedAt: parseDateSafely(member.updatedAt) || undefined,
+          lastPresenceAt: parseDateSafely(member.lastPresenceAt),
+          fullName: String(member.fullName || ""),
+          cpf: String(member.cpf || "").replace(/\D/g, ""),
+          birthday: String(member.birthday || ""),
+          reclassification: String(member.reclassification || ""),
+          pastorName: String(member.pastorName || ""),
+          region: String(member.region || ""),
+          churchPosition: String(member.churchPosition || ""),
+          city: String(member.city || ""),
+          shift: String(member.shift || ""),
+          totvs: String(member.totvs || ""),
+          etda: String(member.etda || ""),
+          status: String(member.status || "Ausente"),
+          photoUrl: member.photoUrl ?? null,
+          absentReason: String(member.absentReason || ""),
+        } as AttendanceRecord;
+      })
+      .filter((member: AttendanceRecord) => Boolean(member.cpf));
+  } catch (error) {
+    console.warn("Nao foi possivel carregar membros via API admin.", error);
+    return [];
+  }
+}
+
+function normalizeSearchText(value: string) {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getManausYearMonth(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: MANAUS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(date);
+
+  const lookup = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+
+  return {
+    year: Number(lookup.year),
+    month: Number(lookup.month),
+  };
+}
+
+function isInManausMonth(value: Date | string | undefined, monthFilter: string) {
+  if (!monthFilter || !value) return true;
+
+  const [targetYear, targetMonth] = monthFilter.split("-").map(Number);
+  if (!targetYear || !targetMonth) return false;
+
+  if (!value) return false;
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+
+  const parts = getManausYearMonth(date);
+  return parts.year === targetYear && parts.month === targetMonth;
+}
+
+function formatMonthFilterLabel(monthFilter: string) {
+  if (!monthFilter) return "";
+
+  const [year, month] = monthFilter.split("-").map(Number);
+  if (!year || !month) return monthFilter;
+
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function getReferenceYear(dateFilter: string) {
+  if (dateFilter) {
+    const [year] = dateFilter.split("-").map(Number);
+    if (year) return year;
+  }
+
+  return getManausYearMonth(new Date()).year;
+}
+
+function buildMonthOptionsForYear(referenceYear: number) {
+  const { year: currentYear, month: currentMonth } = getManausYearMonth(new Date());
+  const totalMonths = referenceYear === currentYear ? currentMonth : 12;
+
+  return Array.from({ length: totalMonths }, (_, index) => {
+    const month = totalMonths - index;
+    const value = `${referenceYear}-${String(month).padStart(2, "0")}`;
+
+    return {
+      value,
+      label: formatMonthFilterLabel(value),
+    };
+  });
+}
+
 export default function PresencaCadastradosPage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [attendanceStatus, setAttendanceStatus] = useState<Record<string, string>>({});
@@ -32,8 +192,9 @@ export default function PresencaCadastradosPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("todos");
   const [regionFilter, setRegionFilter] = useState("__all__");
+  const [dateFilter, setDateFilter] = useState(""); // ✅ Novo filtro de data
+  const [monthFilter, setMonthFilter] = useState("");
   const [availableRegions, setAvailableRegions] = useState<string[]>([]);
-  const [exportDate, setExportDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
@@ -44,7 +205,10 @@ export default function PresencaCadastradosPage() {
   const [editOriginalPhotoUrl, setEditOriginalPhotoUrl] = useState<string | null>(null);
   const [editPhotoMarkedForRemoval, setEditPhotoMarkedForRemoval] = useState(false);
   const [isUploadingEditPhoto, setIsUploadingEditPhoto] = useState(false);
+  const [editTimestamp, setEditTimestamp] = useState<string>(""); // ✅ Para editar data/hora de presença
+  const [isFiltersExpanded, setIsFiltersExpanded] = useState(true); // ✅ Estado para expandir/minimizar filtros
   const [isMounted, setIsMounted] = useState(false);
+  const [allMembers, setAllMembers] = useState<Map<string, any>>(new Map()); // ✅ Membros únicos para filtro "Ausente"
 
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
@@ -66,7 +230,24 @@ export default function PresencaCadastradosPage() {
 
     setLoading(true);
     try {
-      const data = await getAttendanceRecords();
+      const [data, adminDirectory] = await Promise.all([
+        getAttendanceRecords(),
+        getMemberDirectoryRecordsViaApi(),
+      ]);
+
+      let directory: AttendanceRecord[] = adminDirectory;
+
+      if (directory.length === 0) {
+        try {
+          directory = await getMemberDirectoryRecords();
+        } catch (directoryError) {
+          console.warn("Nao foi possivel carregar o diretorio de membros. Usando dados disponiveis.", directoryError);
+        }
+      }
+
+      if (directory.length === 0) {
+        console.warn("Diretorio de membros indisponivel no momento. Somente registros de presenca estao visiveis.");
+      }
 
       if (Array.isArray(data) && data.length > 0) {
         setRecords(data);
@@ -88,6 +269,19 @@ export default function PresencaCadastradosPage() {
         setAttendanceStatus({});
         setJustificativas({});
       }
+
+      const membersMap = new Map<string, AttendanceRecord>();
+      directory.forEach((member) => {
+        if (member.cpf) {
+          membersMap.set(member.cpf, member);
+        }
+      });
+      data.forEach((record) => {
+        if (record.cpf && !membersMap.has(record.cpf)) {
+          membersMap.set(record.cpf, record);
+        }
+      });
+      setAllMembers(membersMap);
 
       setError(null);
     } catch (err) {
@@ -127,9 +321,18 @@ export default function PresencaCadastradosPage() {
     setAvailableRegions(regions);
   }, [records]);
 
+  const referenceYear = useMemo(() => getReferenceYear(dateFilter), [dateFilter]);
+  const availableMonths = useMemo(() => buildMonthOptionsForYear(referenceYear), [referenceYear]);
+
+  useEffect(() => {
+    if (monthFilter && !availableMonths.some((monthOption) => monthOption.value === monthFilter)) {
+      setMonthFilter("");
+    }
+  }, [availableMonths, monthFilter]);
+
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, statusFilter, regionFilter]);
+  }, [search, statusFilter, regionFilter, dateFilter, monthFilter]);
 
   useEffect(() => {
     if (selectedRecordId && !records.some((record) => record.id === selectedRecordId)) {
@@ -149,8 +352,9 @@ export default function PresencaCadastradosPage() {
   }
 
   async function handleSubmitAttendance(id: string) {
-    const record = records.find((r) => r.id === id);
+    const record = records.find((r) => r.id === id) ?? (id.startsWith("absent-") ? allMembers.get(id.replace("absent-", "")) : null);
     const nomePessoa = record?.fullName || "pessoa selecionada";
+    const cpfPessoa = record?.cpf || "";
     const statusEscolhido = attendanceStatus[id] || "Presente";
     const justificativa = justificativas[id];
 
@@ -171,29 +375,28 @@ Clique OK para confirmar ou Cancelar para abortar.`);
       setLoading(true);
       const currentTimestamp = new Date();
 
-      await updateAttendanceStatus(id, statusEscolhido, justificativa || "", currentTimestamp);
+      const result = await registerAttendanceByCpf(cpfPessoa, statusEscolhido, justificativa || "", currentTimestamp);
+      if (!result.success) {
+        setError(result.error || "Erro ao registrar presença.");
+        return;
+      }
 
-      setRecords((prev) =>
-        prev.map((r) => {
-          if (r.id !== id) {
-            return r;
-          }
-
-          return {
-            ...r,
-            status: statusEscolhido,
-            absentReason: justificativa || "",
-            timestamp: currentTimestamp,
-            lastUpdated: currentTimestamp,
-          } as AttendanceRecord;
-        })
-      );
+      await fetchRecords();
 
       setError(null);
       alert(`✅ Presença ${statusEscolhido.toLowerCase()} registrada com sucesso para ${nomePessoa}!`);
     } catch (err) {
       console.error("Erro ao registrar presença:", err);
-      setError("Erro ao registrar presença.");
+      
+      // ✅ Tratamento específico para erro de duplicação
+      const errorMessage = err instanceof Error ? err.message : "Erro ao registrar presença.";
+      
+      if (errorMessage.includes("Duplicação bloqueada")) {
+        alert(errorMessage); // Mostra mensagem específica de duplicação
+        setError(errorMessage);
+      } else {
+        setError("Erro ao registrar presença.");
+      }
     } finally {
       setLoading(false);
     }
@@ -203,31 +406,56 @@ Clique OK para confirmar ou Cancelar para abortar.`);
     try {
       setLoading(true);
       const currentTimestamp = new Date();
+      const uniqueRecords = Array.from(
+        new Map(
+          filteredRecords
+            .filter((record) => record.cpf)
+            .map((record) => [record.cpf, record])
+        ).values()
+      );
 
-      const promises = records.map(async (record) => {
+      // ✅ Registrar em lote com controle de erros individual
+      let successCount = 0;
+      let duplicateCount = 0;
+      let errorCount = 0;
+
+      const promises = uniqueRecords.map(async (record) => {
         const statusAtual = attendanceStatus[record.id] || record.status || "Presente";
         const justificativaAtual = justificativas[record.id] || record.absentReason || "";
-        return updateAttendanceStatus(record.id, statusAtual, justificativaAtual, currentTimestamp);
+        
+        try {
+          const result = await registerAttendanceByCpf(record.cpf, statusAtual, justificativaAtual, currentTimestamp);
+          if (!result.success) {
+            throw new Error(result.error || "Falha ao registrar presença.");
+          }
+          successCount++;
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : "";
+          if (errorMessage.includes("Duplicação bloqueada")) {
+            duplicateCount++;
+            console.log(`Duplicação bloqueada para ${record.fullName}`);
+          } else {
+            errorCount++;
+            console.error(`Erro ao registrar ${record.fullName}:`, err);
+          }
+        }
       });
 
       await Promise.all(promises);
-
-      setRecords((prev) =>
-        prev.map((record) => {
-          const statusAtual = attendanceStatus[record.id] || record.status || "Presente";
-          const justificativaAtual = justificativas[record.id] || record.absentReason || "";
-          return {
-            ...record,
-            status: statusAtual,
-            absentReason: justificativaAtual,
-            timestamp: currentTimestamp,
-            lastUpdated: currentTimestamp,
-          } as AttendanceRecord;
-        })
-      );
+      await fetchRecords();
 
       setError(null);
-      alert("Todas as presenças foram registradas com sucesso!");
+      
+      // ✅ Mensagem detalhada sobre o resultado
+      let message = `✅ Registros processados:\n• ${successCount} registrados com sucesso`;
+      if (duplicateCount > 0) {
+        message += `\n• ${duplicateCount} duplicados bloqueados`;
+      }
+      if (errorCount > 0) {
+        message += `\n• ${errorCount} erros`;
+      }
+      
+      alert(message);
     } catch (err) {
       console.error("Erro ao registrar presenças:", err);
       setError("Erro ao registrar presenças.");
@@ -252,13 +480,21 @@ Clique OK para confirmar ou Cancelar para abortar.`);
       const statusAtual = attendanceStatus[id] || "Presente";
       const justificativaAtual = justificativas[id] || "";
 
+      // ✅ Prepara dados para atualização
       const updateData: Partial<AttendanceRecord> = {
         ...editModalFields,
         status: statusAtual,
         absentReason: justificativaAtual,
-        timestamp: currentTimestamp,
         lastUpdated: currentTimestamp,
       };
+      
+      // ✅ Se o timestamp foi editado manualmente, inclui na atualização
+      if (editTimestamp && editTimestamp !== "") {
+        const editedDate = new Date(editTimestamp);
+        if (!isNaN(editedDate.getTime())) {
+          updateData.timestamp = editedDate;
+        }
+      }
 
       if (editPhotoSelection) {
         setIsUploadingEditPhoto(true);
@@ -291,8 +527,22 @@ Clique OK para confirmar ou Cancelar para abortar.`);
         }
       });
 
+      // ✅ Permite edição de timestamp APENAS se fornecido explicitamente
+      // Caso contrário, não inclui no updateData (preserva o original)
+      if (!updateData.timestamp) {
+        delete (updateData as Record<string, unknown>)['timestamp'];
+      }
+
       try {
         await updateAttendanceRecord(id, updateData);
+        await syncMemberProfile(
+          {
+            ...selectedRecord,
+            ...updateData,
+            cpf: (editModalFields.cpf ?? selectedRecord.cpf ?? "").toString(),
+          },
+          { lastPresenceAt: selectedRecord.lastPresenceAt ?? selectedRecord.timestamp ?? null }
+        );
       } catch (saveError) {
         if (uploadedPhoto) {
           try {
@@ -310,9 +560,12 @@ Clique OK para confirmar ou Cancelar para abortar.`);
             return record;
           }
 
+          // ✅ PRESERVA o timestamp original - apenas atualiza outros campos
+          const originalTimestamp = record.timestamp;
           return {
             ...record,
             ...updateData,
+            timestamp: originalTimestamp, // ✅ Garante que timestamp não muda
           } as AttendanceRecord;
         })
       );
@@ -338,6 +591,7 @@ Clique OK para confirmar ou Cancelar para abortar.`);
 
       setEditPhotoSelection(null);
       setEditPhotoMarkedForRemoval(false);
+      await fetchRecords();
 
       setError(null);
       alert("Dados salvos com sucesso!");
@@ -386,64 +640,6 @@ Clique OK para confirmar ou Cancelar para abortar.`);
     } catch (err) {
       console.error("Erro ao excluir registro:", err);
       setError("Erro ao excluir registro.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleExport() {
-    setLoading(true);
-    try {
-      const data = await getAttendanceRecords();
-      console.log(`Exportando ${data.length} registros do Firebase`);
-
-      const headers = [
-        "Nome Completo",
-        "CPF",
-        "Aniversário",
-        "Região",
-        "Cargo na Igreja",
-        "Nome do Pastor",
-        "Status",
-        "Justificativa",
-        "Data/Hora",
-      ];
-
-      const csvContent = [
-        headers.join(","),
-        ...data.map((record) => {
-          const values = [
-            `"${record.fullName || ""}"`,
-            `"${record.cpf || ""}"`,
-            `"${record.birthday || ""}"`,
-            `"${record.region || ""}"`,
-            `"${record.churchPosition || ""}"`,
-            `"${record.pastorName || ""}"`,
-            `"${record.status || "Presente"}"`,
-            `"${record.absentReason || ""}"`,
-            record.timestamp
-              ? `${new Date(record.timestamp).toLocaleDateString("pt-BR")} ${new Date(record.timestamp).toLocaleTimeString("pt-BR")}`
-              : "",
-          ];
-
-          return values.join(",");
-        }),
-      ].join("\n");
-
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-      const link = document.createElement("a");
-      const url = URL.createObjectURL(blob);
-      link.setAttribute("href", url);
-      link.setAttribute("download", `relatorio-presenca-completo-${new Date().toISOString().split("T")[0]}.csv`);
-      link.style.visibility = "hidden";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      alert(`Relatório exportado com sucesso! ${data.length} registros incluídos.`);
-    } catch (err) {
-      console.error("Erro na exportação:", err);
-      setError("Erro ao exportar relatório. Verifique a conexão com o Firebase.");
     } finally {
       setLoading(false);
     }
@@ -505,6 +701,14 @@ Esta é sua última chance de cancelar!`);
         return;
       }
 
+      const backupResult = await createManualBackup({
+        reason: `Backup automático antes de desfazer ${registrosDeHoje.length} registros do dia`,
+      });
+
+      if (!backupResult.success || !backupResult.metadata) {
+        throw new Error(backupResult.error || "Falha ao criar backup de proteção antes da remoção.");
+      }
+
       const promises = registrosDeHoje.map((record: AttendanceRecord) => deleteAttendance(record.id));
       const results = await Promise.all(promises);
       const sucessos = results.filter((result) => result.success).length;
@@ -533,11 +737,13 @@ Esta é sua última chance de cancelar!`);
       }
 
       if (erros === 0) {
-        alert(`✅ Sucesso! Todos os ${sucessos} registros de hoje foram removidos com sucesso.`);
+        alert(`✅ Sucesso! Todos os ${sucessos} registros de hoje foram removidos com sucesso.\n\nBackup de proteção criado: ${backupResult.metadata.id}`);
       } else {
         alert(`⚠️ Processo concluído com alguns problemas:
 • ${sucessos} registros removidos com sucesso
 • ${erros} registros falharam ao ser removidos
+
+Backup de proteção criado: ${backupResult.metadata.id}
 
 Recarregue a página para ver o estado atualizado.`);
       }
@@ -551,216 +757,155 @@ Recarregue a página para ver o estado atualizado.`);
     }
   }
 
-  async function handleExportPorData() {
-    if (!exportDate) {
-      alert("Por favor, selecione uma data para exportar o relatório.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const data = await getAttendanceRecords();
-      const dataEscolhida = new Date(`${exportDate}T00:00:00`);
-
-      const registrosDaData = data.filter((record: AttendanceRecord) => {
-        if (!record.timestamp) {
-          return false;
-        }
-
-        const dataRegistro = toManausDate(new Date(record.timestamp));
-        const dataEscolhidaManaus = toManausDate(dataEscolhida);
-
-        return (
-          dataRegistro.getDate() === dataEscolhidaManaus.getDate() &&
-          dataRegistro.getMonth() === dataEscolhidaManaus.getMonth() &&
-          dataRegistro.getFullYear() === dataEscolhidaManaus.getFullYear()
-        );
-      });
-
-      if (registrosDaData.length === 0) {
-        alert(`Nenhum registro encontrado para a data ${new Date(exportDate).toLocaleDateString("pt-BR")}.`);
-        return;
-      }
-
-      const headers = [
-        "Nome Completo",
-        "CPF",
-        "Aniversário",
-        "Região",
-        "Cargo na Igreja",
-        "Nome do Pastor",
-        "Status",
-        "Justificativa",
-        "Data/Hora",
-      ];
-
-      const csvContent = [
-        headers.join(","),
-        ...registrosDaData.map((record: AttendanceRecord) => {
-          const dataRegistro = record.timestamp ? toManausDate(new Date(record.timestamp)) : null;
-          const dataFormatada = dataRegistro
-            ? `${dataRegistro.toLocaleDateString("pt-BR")} ${dataRegistro.toLocaleTimeString("pt-BR")}`
-            : "";
-
-          const values = [
-            `"${record.fullName || ""}"`,
-            `"${record.cpf || ""}"`,
-            `"${record.birthday || ""}"`,
-            `"${record.region || ""}"`,
-            `"${record.churchPosition || ""}"`,
-            `"${record.pastorName || ""}"`,
-            `"${record.status || "Presente"}"`,
-            `"${record.absentReason || ""}"`,
-            dataFormatada,
-          ];
-
-          return values.join(",");
-        }),
-      ].join("\n");
-
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-      const link = document.createElement("a");
-      const url = URL.createObjectURL(blob);
-      const dataFormatada = exportDate.split("-").reverse().join("-");
-      link.href = url;
-      link.download = `relatorio-presenca-${dataFormatada}.csv`;
-      link.style.visibility = "hidden";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      alert(
-        `Relatório da data ${new Date(exportDate).toLocaleDateString("pt-BR")} exportado com sucesso! ${registrosDaData.length} registros incluídos.`
-      );
-    } catch (err) {
-      console.error("Erro na exportação por data:", err);
-      setError("Erro ao exportar relatório por data. Verifique a conexão com o Firebase.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleExportDiario() {
-    setLoading(true);
-    try {
-      const data = await getAttendanceRecords();
-      console.log(`Buscando registros diários de ${data.length} registros totais`);
-
-      const hoje = new Date();
-      const registrosDiarios = data.filter((record: AttendanceRecord) => {
-        if (!record.timestamp) {
-          return false;
-        }
-
-        const dataRegistro = new Date(record.timestamp);
-        const dataManaus = toManausDate(dataRegistro);
-        const hojeManaus = toManausDate(hoje);
-
-        return (
-          dataManaus.getDate() === hojeManaus.getDate() &&
-          dataManaus.getMonth() === hojeManaus.getMonth() &&
-          dataManaus.getFullYear() === hojeManaus.getFullYear()
-        );
-      });
-
-      console.log(`Encontrados ${registrosDiarios.length} registros para hoje`);
-
-      const headers = [
-        "Nome Completo",
-        "CPF",
-        "Aniversário",
-        "Região",
-        "Cargo na Igreja",
-        "Nome do Pastor",
-        "Status",
-        "Justificativa",
-        "Data/Hora",
-      ];
-
-      const csvContent = [
-        headers.join(","),
-        ...registrosDiarios.map((record: AttendanceRecord) => {
-          const dataRegistro = record.timestamp ? toManausDate(new Date(record.timestamp)) : null;
-          const dataFormatada = dataRegistro
-            ? `${dataRegistro.toLocaleDateString("pt-BR")} ${dataRegistro.toLocaleTimeString("pt-BR")}`
-            : "";
-
-          const values = [
-            `"${record.fullName || ""}"`,
-            `"${record.cpf || ""}"`,
-            `"${record.birthday || ""}"`,
-            `"${record.region || ""}"`,
-            `"${record.churchPosition || ""}"`,
-            `"${record.pastorName || ""}"`,
-            `"${record.status || "Presente"}"`,
-            `"${record.absentReason || ""}"`,
-            dataFormatada,
-          ];
-
-          return values.join(",");
-        }),
-      ].join("\n");
-
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-      const link = document.createElement("a");
-      const url = URL.createObjectURL(blob);
-      link.setAttribute("href", url);
-      const hojeManaus = toManausDate(hoje);
-      const ano = hojeManaus.getFullYear();
-      const mes = (hojeManaus.getMonth() + 1).toString().padStart(2, "0");
-      const dia = hojeManaus.getDate().toString().padStart(2, "0");
-      link.setAttribute("download", `relatorio-presenca-diario-${ano}-${mes}-${dia}.csv`);
-      link.style.visibility = "hidden";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      alert(`Relatório diário exportado com sucesso! ${registrosDiarios.length} registros de hoje incluídos.`);
-    } catch (err) {
-      console.error("Erro na exportação diária:", err);
-      setError("Erro ao exportar relatório diário. Verifique a conexão com o Firebase.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   const filteredRecords = useMemo(() => {
-    return records.filter((record) => {
-      const statusAtual = attendanceStatus[record.id] || record.status || "Presente";
+    const normalizedTerm = normalizeSearchText(search);
+    const shouldShowAbsentWithSearch = statusFilter === "Ausente" || (statusFilter === "todos" && normalizedTerm.length > 0);
+    const targetDate = dateFilter || getTodayManausInputDate();
+    let absentVirtualRecords: AttendanceRecord[] = [];
+    let filtered: AttendanceRecord[] = [];
 
-      if (statusFilter !== "todos" && statusAtual !== statusFilter) {
-        return false;
-      }
+    if (shouldShowAbsentWithSearch) {
+      // CPFs dos membros que JÁ registraram presença no dia específico
+      const registeredCPFs = new Set<string>();
+      records.forEach(r => {
+        if (!r.timestamp) return;
+        
+        const recordDate = new Date(r.timestamp);
+        const filterDate = new Date(targetDate + "T00:00:00");
+        const recordDateStr = recordDate.toLocaleDateString("pt-BR");
+        const filterDateStr = filterDate.toLocaleDateString("pt-BR");
+        
+        if (recordDateStr === filterDateStr && r.cpf) {
+          registeredCPFs.add(r.cpf);
+        }
+      });
+      
+      // Criar registros virtuais para membros que NÃO registraram no dia
+      absentVirtualRecords = Array.from(allMembers.entries())
+        .filter(([cpf]) => cpf && !registeredCPFs.has(cpf))
+        .map(([cpf, member]) => ({
+          id: `absent-${cpf}`,
+          cpf: member.cpf,
+          fullName: member.fullName,
+          status: 'Ausente',
+          region: member.region,
+          churchPosition: member.churchPosition,
+          pastorName: member.pastorName,
+          reclassification: member.reclassification,
+          city: member.city,
+          shift: member.shift,
+          timestamp: new Date(targetDate + "T00:00:00"),
+          photoUrl: member.photoUrl,
+        } as AttendanceRecord));
+    }
 
-      if (regionFilter !== "__all__") {
-        const region = record.region || "";
-        if (region.toLowerCase() !== regionFilter.toLowerCase()) {
+    // 🚨 LÓGICA ESPECIAL: Se filtro "Ausente" está ativo, mostrar MEMBROS SEM registro no dia
+    if (statusFilter === "Ausente") {
+      filtered = absentVirtualRecords;
+    } else {
+      // Filtro normal
+      filtered = records.filter((record) => {
+        const statusAtual = attendanceStatus[record.id] || record.status || "Presente";
+
+        // ✅ Filtro de status
+        if (statusFilter !== "todos" && statusAtual !== statusFilter) {
           return false;
         }
+
+        // ✅ Filtro de região
+        if (regionFilter !== "__all__") {
+          const region = record.region || "";
+          if (region.toLowerCase() !== regionFilter.toLowerCase()) {
+            return false;
+          }
+        }
+
+        // ✅ Filtro de data
+        if (dateFilter) {
+          if (!record.timestamp) {
+            return false;
+          }
+          
+          const recordDate = new Date(record.timestamp);
+          const filterDate = new Date(dateFilter + "T00:00:00");
+          
+          const recordDateStr = recordDate.toLocaleDateString("pt-BR");
+          const filterDateStr = filterDate.toLocaleDateString("pt-BR");
+          
+          if (recordDateStr !== filterDateStr) {
+            return false;
+          }
+        }
+
+        if (monthFilter && !isInManausMonth(record.timestamp, monthFilter)) {
+          return false;
+        }
+
+        // ✅ Busca textual
+        if (!normalizedTerm) {
+          return true;
+        }
+
+        const searchableFields = [
+          record.fullName || "",
+          record.cpf || "",
+          statusAtual,
+          record.region || "",
+          record.churchPosition || "",
+          record.pastorName || "",
+          record.city || "",
+          record.shift || "",
+          record.reclassification || "",
+          record.timestamp ? new Date(record.timestamp).toLocaleDateString("pt-BR") : "",
+          record.absentReason || "",
+        ];
+
+        return searchableFields.some((field) => normalizeSearchText(field).includes(normalizedTerm));
+      });
+
+      if (statusFilter === "todos" && absentVirtualRecords.length > 0) {
+        const alreadyInFiltered = new Set(filtered.map((record) => record.cpf).filter(Boolean));
+        const missingFromToday = absentVirtualRecords.filter((record) => record.cpf && !alreadyInFiltered.has(record.cpf));
+        filtered = [...filtered, ...missingFromToday];
+      }
+    }
+
+    // Aplicar filtros adicionais (região e busca) para modo Ausente também
+    if (statusFilter === "Ausente" || (statusFilter === "todos" && absentVirtualRecords.length > 0)) {
+      // Filtro de região
+      if (regionFilter !== "__all__") {
+        filtered = filtered.filter(r => {
+          const region = r.region || "";
+          return region.toLowerCase() === regionFilter.toLowerCase();
+        });
       }
 
-      const term = search.trim().toLowerCase();
-      if (!term) {
-        return true;
+      // Busca textual
+      if (normalizedTerm) {
+        filtered = filtered.filter(r => {
+          const searchableFields = [
+            r.fullName || "",
+            r.cpf || "",
+            r.region || "",
+            r.churchPosition || "",
+            r.pastorName || "",
+          ];
+          return searchableFields.some((field) => normalizeSearchText(field).includes(normalizedTerm));
+        });
       }
+    }
 
-      const searchableFields = [
-        record.fullName || "",
-        record.cpf || "",
-        statusAtual,
-        record.region || "",
-        record.churchPosition || "",
-        record.pastorName || "",
-        record.city || "",
-        record.shift || "",
-        record.reclassification || "",
-        record.timestamp ? new Date(record.timestamp).toLocaleDateString("pt-BR") : "",
-        record.absentReason || "",
-      ];
+    if (statusFilter === "Ausente" && monthFilter) {
+      filtered = filtered.filter((record) => isInManausMonth(record.timestamp, monthFilter));
+    }
 
-      return searchableFields.some((field) => field.toLowerCase().includes(term));
+    // ✅ Ordena por timestamp (mais recente primeiro)
+    return filtered.sort((a, b) => {
+      const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return timeB - timeA;
     });
-  }, [attendanceStatus, records, regionFilter, search, statusFilter]);
+  }, [attendanceStatus, records, regionFilter, search, statusFilter, dateFilter, allMembers, monthFilter]);
 
   useEffect(() => {
     const maxPage = Math.max(1, Math.ceil(filteredRecords.length / itemsPerPage));
@@ -792,12 +937,28 @@ Recarregue a página para ver o estado atualizado.`);
       city: record.city || "",
       shift: record.shift || "",
       reclassification: record.reclassification || "",
+      totvs: record.totvs || "",
+      etda: record.etda || "",
     });
     setEditPhotoSelection(null);
     setEditPhotoPreview(record.photoUrl ?? null);
     setEditOriginalPhotoUrl(record.photoUrl ?? null);
     setEditPhotoMarkedForRemoval(false);
     setIsUploadingEditPhoto(false);
+    
+    // ✅ Inicializa timestamp editável no formato datetime-local (yyyy-MM-ddTHH:mm)
+    if (record.timestamp) {
+      const date = new Date(record.timestamp);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      setEditTimestamp(`${year}-${month}-${day}T${hours}:${minutes}`);
+    } else {
+      setEditTimestamp("");
+    }
+    
     setIsEditModalOpen(true);
   }
 
@@ -844,15 +1005,52 @@ Recarregue a página para ver o estado atualizado.`);
 
   return (
     <div className="flex flex-col gap-4 sm:gap-6 lg:gap-8">
-      <Card className="w-full max-w-6xl mx-auto">
-        <CardHeader className="p-3 sm:p-6">
-          <CardTitle className="text-sm sm:text-lg font-medium">Filtros de pesquisa</CardTitle>
-          <CardDescription className="text-xs sm:text-sm">
-            Combine busca textual com filtros por status e região para localizar registros rapidamente.
-          </CardDescription>
+      <Card className="w-full max-w-6xl mx-auto animate-in fade-in slide-in-from-top duration-500">
+        <CardHeader 
+          className="p-3 sm:p-6 cursor-pointer hover:bg-accent/50 hover:scale-[1.01] transition-all duration-300" 
+          onClick={() => setIsFiltersExpanded(!isFiltersExpanded)}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <CardTitle className="text-sm sm:text-lg font-medium flex items-center gap-2">
+                <span className="text-lg">{isFiltersExpanded ? "🔽" : "▶️"}</span>
+                <span>Filtros de pesquisa</span>
+              </CardTitle>
+              <CardDescription className="text-xs sm:text-sm mt-1">
+                {isFiltersExpanded ? (
+                  "Combine busca textual com filtros por status, data, mês e região"
+                ) : (
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <span className="font-semibold text-foreground">{filteredRecords.length} registro(s)</span>
+                    {search && <span className="bg-blue-100 dark:bg-blue-900 px-2 py-0.5 rounded text-xs">🔍 "{search}"</span>}
+                    {dateFilter && <span className="bg-purple-100 dark:bg-purple-900 px-2 py-0.5 rounded text-xs">📅 {new Date(dateFilter + "T00:00:00").toLocaleDateString("pt-BR", { day: '2-digit', month: '2-digit' })}</span>}
+                    {statusFilter !== "todos" && <span className="bg-green-100 dark:bg-green-900 px-2 py-0.5 rounded text-xs">✅ {statusFilter}</span>}
+                    {regionFilter !== "__all__" && <span className="bg-orange-100 dark:bg-orange-900 px-2 py-0.5 rounded text-xs truncate max-w-[120px]">📍 {regionFilter}</span>}
+                    {monthFilter && (
+                      <span className="bg-amber-100 dark:bg-amber-900 px-2 py-0.5 rounded text-xs truncate max-w-[220px]">
+                        🗓️ {formatMonthFilterLabel(monthFilter)}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </CardDescription>
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="shrink-0 text-xs sm:text-sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsFiltersExpanded(!isFiltersExpanded);
+              }}
+            >
+              {isFiltersExpanded ? "Ocultar" : "Mostrar"}
+            </Button>
+          </div>
         </CardHeader>
+        <div className={`transition-all duration-300 ease-in-out overflow-hidden ${isFiltersExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
         <CardContent className="p-3 sm:p-6 pt-0 space-y-4">
-          <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-2">
+          <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             <Input
               type="text"
               placeholder="Buscar por nome, CPF, cargo ou pastor"
@@ -870,7 +1068,32 @@ Recarregue a página para ver o estado atualizado.`);
                 <SelectItem value="Ausente">Ausente</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={monthFilter || "__all__"} onValueChange={(value) => setMonthFilter(value === "__all__" ? "" : value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Filtrar por mês" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todos os meses</SelectItem>
+                {availableMonths.map((monthOption) => (
+                  <SelectItem key={monthOption.value} value={monthOption.value}>
+                    {monthOption.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
+
+          {/* ⚠️ Aviso especial para filtro "Ausente" */}
+          {statusFilter === "Ausente" && (
+            <div className="p-3 bg-red-50 dark:bg-red-950 border-l-4 border-red-400 rounded">
+              <p className="text-xs sm:text-sm text-red-700 dark:text-red-300">
+                <strong>⚠️ Modo Ausentes:</strong> Mostrando membros que <strong>NÃO registraram presença</strong> no dia {dateFilter ? new Date(dateFilter + "T00:00:00").toLocaleDateString("pt-BR") : "de hoje"}.
+                <br />
+                <small>Base: {allMembers.size} membros do cadastro mestre com fallback seguro para legado.</small>
+              </p>
+            </div>
+          )}
+
           <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             <Select value={regionFilter} onValueChange={setRegionFilter}>
               <SelectTrigger>
@@ -885,21 +1108,13 @@ Recarregue a página para ver o estado atualizado.`);
                 ))}
               </SelectContent>
             </Select>
-            <div className="flex items-center gap-2">
-              <Input
-                type="date"
-                value={exportDate}
-                onChange={(event) => setExportDate(event.target.value)}
-                className="flex-1"
-                placeholder="Data para exportar"
-              />
-              <Button onClick={handleExportPorData} disabled={loading || !exportDate} className="whitespace-nowrap">
-                📋 Exportar data
-              </Button>
-            </div>
-            <Button onClick={handleExportDiario} disabled={loading} className="flex items-center justify-center gap-2">
-              📅 Exportar hoje
-            </Button>
+            <Input
+              type="date"
+              value={dateFilter}
+              onChange={(event) => setDateFilter(event.target.value)}
+              placeholder="Filtrar por data"
+              title="Filtrar registros por data específica"
+            />
             <Button variant="destructive" onClick={handleDesfazerRegistrosDeHoje} disabled={loading} className="flex items-center justify-center gap-2">
               ⚠️ Desfazer hoje
             </Button>
@@ -911,26 +1126,19 @@ Recarregue a página para ver o estado atualizado.`);
                 setSearch("");
                 setStatusFilter("todos");
                 setRegionFilter("__all__");
-                setExportDate("");
+                setDateFilter(""); // ✅ Limpar filtro de data
+                setMonthFilter("");
               }}
               className="flex items-center gap-2 text-sm"
             >
               Limpar filtros
             </Button>
-            <Button onClick={handleExport} variant="secondary" disabled={loading} className="flex items-center gap-2 text-sm">
-              Exportar CSV completo
-            </Button>
-          </div>
-          <div className="text-xs text-muted-foreground">
-            {search && <span>🔍 Buscando por "{search}". </span>}
-            <span>
-              {filteredRecords.length} registro(s) após filtros — {records.length} registro(s) totais carregados.
-            </span>
           </div>
         </CardContent>
+        </div>
       </Card>
 
-      <Card className="w-full max-w-6xl mx-auto">
+      <Card className="w-full max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700" style={{ animationDelay: '200ms' }}>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
           <div>
             <CardTitle className="text-sm sm:text-lg font-medium">
@@ -976,8 +1184,8 @@ Recarregue a página para ver o estado atualizado.`);
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedRecords.map((record) => (
-                      <tr key={record.id} className="border-b hover:bg-gray-50/50 transition-colors">
+                    {paginatedRecords.map((record, index) => (
+                      <tr key={record.id} className="border-b hover:bg-blue-50 transition-colors animate-in fade-in slide-in-from-right duration-500" style={{ animationDelay: `${index * 50}ms` }}>
                         <td className="p-2 border">
                           <div className="truncate" title={record.fullName}>
                             {record.fullName}
@@ -1066,8 +1274,8 @@ Recarregue a página para ver o estado atualizado.`);
               </div>
 
               <div className="md:hidden space-y-4">
-                {paginatedRecords.map((record) => (
-                  <Card key={record.id} className="p-4">
+                {paginatedRecords.map((record, index) => (
+                  <Card key={record.id} className="p-4 hover:shadow-lg hover:-translate-y-1 animate-in fade-in slide-in-from-bottom duration-500 transition-shadow" style={{ animationDelay: `${index * 50}ms` }}>
                     <div className="flex justify-between items-start gap-3">
                       <div>
                         <h3 className="text-sm font-semibold">{record.fullName}</h3>
@@ -1268,6 +1476,41 @@ Recarregue a página para ver o estado atualizado.`);
                     placeholder="Informações adicionais"
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-totvs">TOTVS</Label>
+                  <Input
+                    id="edit-totvs"
+                    value={editModalFields.totvs ?? ""}
+                    onChange={(event) => handleModalFieldChange("totvs", event.target.value)}
+                    placeholder="Digite o código TOTVS"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-etda">ETDA</Label>
+                  <Input
+                    id="edit-etda"
+                    value={editModalFields.etda ?? ""}
+                    onChange={(event) => handleModalFieldChange("etda", event.target.value)}
+                    placeholder="Digite o código ETDA"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2 p-4 border rounded-lg bg-amber-50 dark:bg-amber-950/20">
+                <Label htmlFor="edit-timestamp" className="text-amber-700 dark:text-amber-400 font-semibold">
+                  ⚠️ Data/Hora de Registro (Apenas para correções)
+                </Label>
+                <Input
+                  id="edit-timestamp"
+                  type="datetime-local"
+                  value={editTimestamp}
+                  onChange={(e) => setEditTimestamp(e.target.value)}
+                  className="font-mono"
+                />
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  Use este campo APENAS para corrigir registros com data/hora incorreta. 
+                  Não altere a menos que seja necessário!
+                </p>
               </div>
 
               <PhotoCaptureField

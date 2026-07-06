@@ -3,11 +3,11 @@
 ## ⚡ CREDENCIAIS RÁPIDAS
 
 ```
-Terminal 1: registro1@ipda.app.br | Terminal@2025#1
-Terminal 2: registro2@ipda.app.br | Terminal@2025#2
-Terminal 3: registro3@ipda.app.br | Terminal@2025#3
-Terminal 4: registro4@ipda.app.br | Terminal@2025#4
-Principal:  presente@ipda.app.br  | (senha existente)
+Terminal 1: registro1@ipda.app.br | senha em credentials.local.json
+Terminal 2: registro2@ipda.app.br | senha em credentials.local.json
+Terminal 3: registro3@ipda.app.br | senha em credentials.local.json
+Terminal 4: registro4@ipda.app.br | senha em credentials.local.json
+Principal:  presente@ipda.app.br  | senha em credentials.local.json
 ```
 
 ## 🎯 CHECKLIST PRE-EVENTO

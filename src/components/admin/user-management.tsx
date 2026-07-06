@@ -1,691 +1,849 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
+import { collection, getDocs } from 'firebase/firestore';
+
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
 } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from '@/components/ui/popover';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
-import { isSuperUser } from '@/lib/auth';
 import { auth, db } from '@/lib/firebase';
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
 import {
-    Check,
-    Edit,
-    Eye,
-    EyeOff,
-    Info,
-    MoreVertical,
-    RefreshCw,
-    Shield,
-    Trash2,
-    User,
-    UserPlus,
-    X
+  deriveCapabilityFlags,
+  getAccessProfileConfig,
+  getAccessProfileFromRole,
+  getAccessProfileOptions,
+  hasCustomNavigationPermissions,
+  ManagedAccessProfile,
+  NAVIGATION_PERMISSION_OPTIONS,
+  NavigationPermission,
+  normalizeNavigationPermissions,
+} from '@/lib/user-access';
+import {
+  AlertTriangle,
+  Pencil,
+  RefreshCw,
+  Search,
+  Shield,
+  Trash2,
+  UserCog,
+  UserPlus,
+  Users,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
 
-interface FirebaseUser {
-  uid: string;
-  email: string;
-  emailVerified: boolean;
-  displayName?: string;
-  creationTime?: string;
-  lastSignInTime?: string;
-  disabled?: boolean;
-  isFromFirestore?: boolean;
-}
-
-interface UserProfile {
+interface ManagedUser {
   uid: string;
   email: string;
   displayName: string;
-  role: 'user' | 'admin';
-  createdAt: string;
-  lastLoginAt?: string;
+  role: string;
+  accessProfile: ManagedAccessProfile;
+  userType: string;
+  permissions: string[];
+  active: boolean;
+  disabled: boolean;
+  emailVerified: boolean;
+  canEditAttendance: boolean;
+  canRegister: boolean;
+  canViewAttendance: boolean;
+  canManageUsers: boolean;
+  canAccessReports: boolean;
+  createdAt: string | null;
+  lastLoginAt: string | null;
+  syncStatus: 'synced' | 'auth_only' | 'firestore_only';
+  isProtected: boolean;
+}
+
+interface CreateManagedUserResponse {
+  uid: string;
+  mode: 'created' | 'resynced';
+  user: ManagedUser;
+  message: string;
+}
+
+interface UserManagementProps {
+  embedded?: boolean;
+}
+
+interface UserFormState {
+  uid?: string;
+  email: string;
+  displayName: string;
+  password: string;
+  accessProfile: ManagedAccessProfile;
+  permissions: NavigationPermission[];
   active: boolean;
 }
 
-export function UserManagement() {
+type RoleFilterValue = 'all' | ManagedAccessProfile;
+
+type TemplatePreset = {
+  templateLabel: string;
+  email: string;
+  displayName: string;
+  password: string;
+  accessProfile: ManagedAccessProfile;
+};
+
+type ManagementMode = 'api' | 'firestore-readonly';
+
+const PROTECTED_EMAILS = new Set(['admin@ipda.org.br', 'marciodesk@ipda.app.br']);
+
+function normalizeStoredDate(value: unknown): string | null {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'toDate' in value &&
+    typeof (value as { toDate?: () => Date }).toDate === 'function'
+  ) {
+    return (value as { toDate: () => Date }).toDate().toISOString();
+  }
+
+  return null;
+}
+
+function mapFirestoreUser(uid: string, data: Record<string, unknown>): ManagedUser {
+  const role = typeof data.role === 'string' ? data.role : 'basic_user';
+  const accessProfile = getAccessProfileFromRole(role);
+  const permissions = normalizeNavigationPermissions(
+    Array.isArray(data.permissions) ? data.permissions.filter((value): value is string => typeof value === 'string') : undefined,
+    accessProfile
+  );
+  const capabilities = deriveCapabilityFlags(permissions);
+  const active = data.active !== false && data.isActive !== false;
+  const userType =
+    typeof data.userType === 'string' && data.userType
+      ? data.userType
+      : getAccessProfileConfig(accessProfile).userType;
+  const email = typeof data.email === 'string' ? data.email : '';
+
+  return {
+    uid,
+    email,
+    displayName:
+      (typeof data.displayName === 'string' && data.displayName) ||
+      (typeof data.nome === 'string' && data.nome) ||
+      'Usuário',
+    role,
+    accessProfile,
+    userType,
+    permissions,
+    active,
+    disabled: !active,
+    emailVerified: data.emailVerified === true,
+    canEditAttendance:
+      typeof data.canEditAttendance === 'boolean' ? data.canEditAttendance : capabilities.canEditAttendance,
+    canRegister: typeof data.canRegister === 'boolean' ? data.canRegister : capabilities.canRegister,
+    canViewAttendance:
+      typeof data.canViewAttendance === 'boolean' ? data.canViewAttendance : capabilities.canViewAttendance,
+    canManageUsers:
+      typeof data.canManageUsers === 'boolean' ? data.canManageUsers : capabilities.canManageUsers,
+    canAccessReports:
+      typeof data.canAccessReports === 'boolean' ? data.canAccessReports : capabilities.canAccessReports,
+    createdAt: normalizeStoredDate(data.createdAt) || normalizeStoredDate(data.updatedAt),
+    lastLoginAt: normalizeStoredDate(data.lastLoginAt),
+    syncStatus: 'synced',
+    isProtected:
+      PROTECTED_EMAILS.has(email) ||
+      accessProfile === 'admin' ||
+      role === 'admin' ||
+      role === 'super' ||
+      userType === 'ADMIN_USER',
+  };
+}
+
+function buildFormState(
+  accessProfile: ManagedAccessProfile,
+  overrides: Omit<Partial<UserFormState>, 'permissions'> & { permissions?: string[] } = {}
+): UserFormState {
+  return {
+    uid: overrides.uid,
+    email: overrides.email ?? '',
+    displayName: overrides.displayName ?? '',
+    password: overrides.password ?? '',
+    accessProfile,
+    permissions: normalizeNavigationPermissions(overrides.permissions, accessProfile),
+    active: overrides.active ?? true,
+  };
+}
+
+const EMPTY_CREATE_FORM: UserFormState = buildFormState('basic');
+
+const TEMPLATE_PRESETS: Record<string, TemplatePreset> = {
+  secretaria: {
+    templateLabel: 'Secretaria IPDA',
+    email: 'secretaria@ipda.org.br',
+    displayName: 'Secretaria IPDA',
+    password: '',
+    accessProfile: 'basic',
+  },
+  auxiliar: {
+    templateLabel: 'Auxiliar IPDA',
+    email: 'auxiliar@ipda.org.br',
+    displayName: 'Auxiliar IPDA',
+    password: '',
+    accessProfile: 'basic',
+  },
+  cadastro: {
+    templateLabel: 'Cadastro IPDA',
+    email: 'cadastro@ipda.app.br',
+    displayName: 'Cadastro IPDA',
+    password: '',
+    accessProfile: 'editor',
+  },
+  presente: {
+    templateLabel: 'Controle de Presenca',
+    email: 'presente@ipda.app.br',
+    displayName: 'Controle de Presenca IPDA',
+    password: '',
+    accessProfile: 'editor',
+  },
+  batismo: {
+    templateLabel: 'Operador de Batismo',
+    email: 'batismo@ipda.app.br',
+    displayName: 'Operador de Batismo IPDA',
+    password: '',
+    accessProfile: 'baptism',
+  },
+};
+
+function formatDateTime(value: string | null) {
+  if (!value) {
+    return 'Nunca';
+  }
+
+  try {
+    return new Date(value).toLocaleString('pt-BR');
+  } catch {
+    return value;
+  }
+}
+
+function getSyncBadge(syncStatus: ManagedUser['syncStatus']) {
+  switch (syncStatus) {
+    case 'synced':
+      return {
+        label: 'Sincronizado',
+        className: 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50',
+      };
+    case 'auth_only':
+      return {
+        label: 'Sem perfil',
+        className: 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50',
+      };
+    case 'firestore_only':
+      return {
+        label: 'Sem auth',
+        className: 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-50',
+      };
+    default:
+      return {
+        label: 'Indefinido',
+        className: '',
+      };
+  }
+}
+
+function getRoleBadge(accessProfile: ManagedAccessProfile) {
+  switch (accessProfile) {
+    case 'admin':
+      return 'bg-slate-900 text-white hover:bg-slate-900';
+    case 'editor':
+      return 'bg-blue-600 text-white hover:bg-blue-600';
+    case 'baptism':
+      return 'border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50';
+    default:
+      return 'bg-muted text-foreground hover:bg-muted';
+  }
+}
+
+function getPermissionLabel(permission: string) {
+  return (
+    NAVIGATION_PERMISSION_OPTIONS.find((option) => option.permission === permission)?.label ?? permission
+  );
+}
+
+function summarizePermissions(permissions: string[]) {
+  return permissions.map((permission) => getPermissionLabel(permission));
+}
+
+export function UserManagement({ embedded = false }: UserManagementProps) {
   const { user: currentUser } = useAuth();
   const { toast } = useToast();
-  const [users, setUsers] = useState<FirebaseUser[]>([]);
-  const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
+
+  const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
-  const [addingUser, setAddingUser] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ displayName: '', role: 'user' as 'user' | 'admin' });
-  
-  // Form state
-  const [newUserForm, setNewUserForm] = useState({
-    email: '',
-    password: '',
-    displayName: ''
-  });
+  const [refreshing, setRefreshing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [togglingUid, setTogglingUid] = useState<string | null>(null);
+  const [deletingUid, setDeletingUid] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [managementMode, setManagementMode] = useState<ManagementMode>('api');
 
-  // Carregar usuários do Firestore
-  const loadUserProfiles = async () => {
-    try {
-      const usersRef = collection(db, 'users');
-      const snapshot = await getDocs(usersRef);
-      
-      const profiles: UserProfile[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        profiles.push({
-          uid: doc.id,
-          email: data.email || '',
-          displayName: data.displayName || data.nome || 'Usuário',
-          role: data.role || 'user',
-          createdAt: data.createdAt || new Date().toISOString(),
-          lastLoginAt: data.lastLoginAt,
-          active: data.active !== false
-        });
-      });
-      
-      setUserProfiles(profiles);
-      return profiles;
-    } catch (error) {
-      console.error('Erro ao carregar perfis de usuários:', error);
-      return [];
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<RoleFilterValue>('all');
+
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState('manual');
+  const [createForm, setCreateForm] = useState<UserFormState>(EMPTY_CREATE_FORM);
+  const [editForm, setEditForm] = useState<UserFormState>(EMPTY_CREATE_FORM);
+
+  const accessProfileOptions = getAccessProfileOptions().filter(
+    (profile) => profile.accessProfile !== 'admin'
+  );
+
+  const isReadOnlyMode = managementMode === 'firestore-readonly';
+
+  const requestApi = async <T,>(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', body?: Record<string, unknown>) => {
+    if (!currentUser) {
+      throw new Error('Sessao administrativa nao encontrada. Entre novamente no sistema.');
     }
+
+    const authUser =
+      typeof currentUser.getIdToken === 'function' ? currentUser : auth.currentUser;
+
+    if (!authUser || typeof authUser.getIdToken !== 'function') {
+      throw new Error('Sessao administrativa invalida. Atualize a pagina e tente novamente.');
+    }
+
+    const token = await authUser.getIdToken();
+    const response = await fetch('/api/admin/users', {
+      method,
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    let payload: any = null;
+
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+
+    if (!response.ok || !payload.success) {
+      const error = new Error(
+        payload?.message ||
+          (response.status === 404
+            ? 'A API administrativa não está disponível neste deploy.'
+            : 'Falha ao comunicar com a API administrativa.')
+      ) as Error & { status?: number };
+      error.status = response.status;
+      throw error;
+    }
+
+    return payload as T;
   };
 
-  // Carregar usuários do Firebase (com melhor tratamento de erro)
-  const loadUsers = async () => {
-    setLoading(true);
-    try {
-      console.log('🔄 Carregando usuários...');
-      
-      // Para builds estáticos, pular tentativa de API e ir direto ao fallback
-      const isStaticBuild = process.env.NODE_ENV === 'production' && process.env.BUILD_TARGET === 'plesk';
-      
-      if (isStaticBuild) {
-        console.log('🏗️ Build estático detectado - usando método fallback direto');
-        await loadUsersFromKnownList();
-        return;
-      }
-      
-      // Tentar carregar via API primeiro, mas não falhar se não funcionar
-      let firebaseUsers: FirebaseUser[] = [];
-      let useAPI = false;
-      
-      try {
-        console.log('🔗 Tentando carregar via API...');
-        const response = await fetch('/api/admin/users');
-        const data = await response.json();
-        
-        if (data.success && data.users && Array.isArray(data.users)) {
-          console.log('✅ API funcionou - usuários do Firebase Auth:', data.users.length);
-          useAPI = true;
-          
-          firebaseUsers = data.users.map((user: any) => ({
-            uid: user.uid,
-            email: user.email || 'email@exemplo.com',
-            emailVerified: user.emailVerified || false,
-            displayName: user.displayName || 'Nome não definido',
-            creationTime: user.metadata?.creationTime || new Date().toISOString(),
-            lastSignInTime: user.metadata?.lastSignInTime,
-            disabled: user.disabled || false,
-            isFromFirestore: true
-          }));
-        } else {
-          console.log('⚠️ API retornou:', data);
-          console.log('💡 Motivo: Firebase Admin não está configurado (normal em desenvolvimento)');
-        }
-      } catch (apiError) {
-        console.log('⚠️ API falhou, usando método fallback:', apiError);
-      }
-      
-      if (useAPI && firebaseUsers.length > 0) {
-        // Usar dados da API
-        setUsers(firebaseUsers);
-        console.log('📊 Usuários carregados via API:', firebaseUsers.length);
-        console.log('📋 Lista de emails:', firebaseUsers.map(u => u.email));
-      } else {
-        // Fallback: usar lista conhecida
-        console.log('🔄 Usando lista de usuários conhecidos (fallback)...');
-        await loadUsersFromKnownList();
-      }
-      
-    } catch (error) {
-      console.error('❌ Erro geral ao carregar usuários:', error);
-      // Fallback final
-      await loadUsersFromKnownList();
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Função fallback para carregar usuários conhecidos
-  // Função para carregar usuários do Firestore + Lista conhecida de usuários IPDA
-  const loadUsersFromKnownList = async () => {
-    try {
-      console.log('🔄 Carregando usuários do Firestore + Lista conhecida...');
-      
-      // Lista de usuários conhecidos do sistema IPDA
-      const knownUsers = [
-        {
-          uid: 'admin-ipda',
-          email: 'admin@ipda.org.br',
-          displayName: 'Administrador IPDA',
-          emailVerified: false,
-          creationTime: '2025-01-01T00:00:00Z',
-          lastSignInTime: undefined,
-          isFromFirestore: false
-        },
-        {
-          uid: 'marcio-admin',
-          email: 'marciodesk@ipda.app.br',
-          displayName: 'Márcio - Admin Técnico',
-          emailVerified: false,
-          creationTime: '2025-01-01T00:00:00Z',
-          lastSignInTime: undefined,
-          isFromFirestore: false
-        },
-        {
-          uid: 'presente-ipda',
-          email: 'presente@ipda.app.br',
-          displayName: 'Controle de Presença IPDA',
-          emailVerified: false,
-          creationTime: '2025-01-01T00:00:00Z',
-          lastSignInTime: undefined,
-          isFromFirestore: false
-        },
-        {
-          uid: 'secretaria-ipda',
-          email: 'secretaria@ipda.org.br',
-          displayName: 'Secretaria IPDA',
-          emailVerified: false,
-          creationTime: '2025-01-01T00:00:00Z',
-          lastSignInTime: undefined,
-          isFromFirestore: false
-        },
-        {
-          uid: 'auxiliar-ipda',
-          email: 'auxiliar@ipda.org.br',
-          displayName: 'Auxiliar IPDA',
-          emailVerified: false,
-          creationTime: '2025-01-01T00:00:00Z',
-          lastSignInTime: undefined,
-          isFromFirestore: false
-        },
-        {
-          uid: 'cadastro-ipda',
-          email: 'cadastro@ipda.app.br',
-          displayName: 'Cadastro IPDA',
-          emailVerified: false,
-          creationTime: '2025-01-01T00:00:00Z',
-          lastSignInTime: undefined,
-          isFromFirestore: false
-        }
-      ];
-      
-      // Buscar usuários do Firestore
-      const usersSnapshot = await getDocs(collection(db, 'users'));
-      
-      const firestoreUsers: FirebaseUser[] = usersSnapshot.docs.map(doc => {
-        const userData = doc.data() as any;
-        return {
-          uid: doc.id,
-          email: userData.email || 'N/A',
-          displayName: userData.displayName || userData.nome || 'Usuário Sem Nome',
-          emailVerified: userData.emailVerified || false,
-          creationTime: userData.createdAt || new Date().toISOString(),
-          lastSignInTime: userData.lastSignInTime || undefined,
-          isFromFirestore: true
-        };
-      });
-
-      // Combinar usuários: priorizar Firestore, adicionar conhecidos não encontrados
-      const allUsers: FirebaseUser[] = [...firestoreUsers];
-      
-      knownUsers.forEach(knownUser => {
-        // Só adiciona se não existir no Firestore
-        const existsInFirestore = firestoreUsers.some(user => 
-          user.email === knownUser.email || user.uid === knownUser.uid
-        );
-        
-        if (!existsInFirestore) {
-          allUsers.push(knownUser as FirebaseUser);
-        }
-      });
-
-      console.log(`✅ Total de usuários carregados: ${allUsers.length}`);
-      console.log('📋 Lista completa:', allUsers.map(u => `${u.email} (${u.displayName}) - ${u.isFromFirestore ? 'Firestore' : 'Conhecida'}`));
-      
-      // Definir lista completa de usuários
-      setUsers(allUsers);
-      
-      if (allUsers.length === 0) {
-        console.log('⚠️ Nenhum usuário encontrado.');
-        toast({
-          title: "⚠️ Nenhum usuário encontrado",
-          description: "Não foi possível carregar usuários do sistema.",
-          variant: "default"
-        });
-      }
-      
-    } catch (error: any) {
-      console.error('❌ Erro ao carregar usuários:', error);
-      
-      // Em caso de erro, usar apenas lista conhecida
-      const knownUsers: FirebaseUser[] = [
-        {
-          uid: 'admin-ipda',
-          email: 'admin@ipda.org.br',
-          displayName: 'Administrador IPDA',
-          emailVerified: false,
-          creationTime: '2025-01-01T00:00:00Z',
-          lastSignInTime: undefined,
-          isFromFirestore: false
-        },
-        {
-          uid: 'marcio-admin',
-          email: 'marciodesk@ipda.app.br',
-          displayName: 'Márcio - Admin Técnico',
-          emailVerified: false,
-          creationTime: '2025-01-01T00:00:00Z',
-          lastSignInTime: undefined,
-          isFromFirestore: false
-        }
-      ];
-      
-      setUsers(knownUsers);
-      
-      toast({
-        title: "⚠️ Erro ao carregar usuários",
-        description: `Erro: ${error.message}. Usando lista conhecida.`,
-        variant: "default"
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Adicionar novo usuário (Método direto - mais confiável)
-  const handleAddUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAddingUser(true);
-
-    try {
-      // Verificar se é super usuário antes de criar
-      if (!currentUser || !isSuperUser(currentUser.email || '')) {
-        throw new Error('Apenas super usuários podem criar novos usuários');
-      }
-
-      console.log(`🔄 Criando usuário ${newUserForm.email} (método direto)...`);
-
-      // Criar usuário no Firebase Auth (método direto)
-      const userCredential = await createUserWithEmailAndPassword(
-        auth, 
-        newUserForm.email, 
-        newUserForm.password
+  const loadUsersFromFirestore = async () => {
+    const snapshot = await getDocs(collection(db, 'users'));
+    const firestoreUsers = snapshot.docs
+      .map((doc) => mapFirestoreUser(doc.id, doc.data() as Record<string, unknown>))
+      .sort((left, right) =>
+        `${left.displayName} ${left.email}`.localeCompare(`${right.displayName} ${right.email}`, 'pt-BR', {
+          sensitivity: 'base',
+        })
       );
 
-      console.log('✅ Usuário criado no Firebase Auth:', userCredential.user.uid);
-
-      // Atualizar perfil no Auth se nome foi fornecido
-      if (newUserForm.displayName) {
-        await updateProfile(userCredential.user, {
-          displayName: newUserForm.displayName
-        });
-        console.log('✅ Perfil atualizado no Auth');
-      }
-
-      // Criar perfil no Firestore com permissões de usuário comum
-      const userProfile = {
-        uid: userCredential.user.uid,
-        email: userCredential.user.email || '',
-        displayName: newUserForm.displayName || 'Usuário Comum',
-        nome: newUserForm.displayName || 'Usuário Comum',
-        cargo: 'BASIC_USER', // Para compatibilidade interna
-        role: 'basic_user', // ✅ Para compatibilidade com verificações de acesso
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        active: true,
-        emailVerified: userCredential.user.emailVerified || false,
-        lastLoginAt: null
-      };
-
-      await setDoc(doc(db, 'users', userCredential.user.uid), userProfile);
-      console.log('✅ Perfil criado no Firestore com permissão BASIC_USER');
-
-      // Atualizar lista local imediatamente com o usuário criado
-      const newUser: FirebaseUser = {
-        uid: userCredential.user.uid,
-        email: userCredential.user.email || '',
-        emailVerified: userCredential.user.emailVerified,
-        displayName: newUserForm.displayName || 'Usuário Comum',
-        creationTime: new Date().toISOString(),
-        lastSignInTime: undefined,
-        isFromFirestore: true
-      };
-
-      console.log('🔄 Adicionando usuário à lista local:', newUser);
-      setUsers(prev => {
-        // Evitar duplicatas
-        const filtered = prev.filter(user => user.uid !== newUser.uid && user.email !== newUser.email);
-        return [...filtered, newUser];
-      });
-
-      // Limpar formulário
-      setNewUserForm({
-        email: '',
-        password: '',
-        displayName: ''
-      });
-
-      setIsDialogOpen(false);
-
-      toast({
-        title: "✅ Usuário criado com sucesso!",
-        description: `${newUserForm.email} foi adicionado ao sistema com permissões de usuário comum (basic_user). O usuário agora tem acesso ao Dashboard e Registro de Presença.`,
-        variant: "default"
-      });
-
-      // FORÇAR MÚLTIPLAS SINCRONIZAÇÕES para garantir que apareça na lista
-      console.log('🔄 Forçando sincronização completa...');
-      
-      // 1. Recarregar imediatamente
-      setTimeout(() => {
-        console.log('🔄 Recarregamento 1/3...');
-        loadUsers();
-      }, 500);
-      
-      // 2. Recarregar novamente para garantir
-      setTimeout(() => {
-        console.log('🔄 Recarregamento 2/3...');
-        loadUsers();
-      }, 2000);
-      
-      // 3. Recarregamento final
-      setTimeout(() => {
-        console.log('🔄 Recarregamento final 3/3...');
-        loadUsers();
-      }, 4000);
-
-    } catch (error: any) {
-      console.error('❌ Erro ao criar usuário:', error);
-      
-      let errorMessage = "Erro desconhecido ao criar usuário.";
-      
-      if (error.code === 'auth/email-already-in-use') {
-        errorMessage = "Este email já está sendo usado por outro usuário.";
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = "Email inválido.";
-      } else if (error.code === 'auth/weak-password') {
-        errorMessage = "A senha deve ter pelo menos 6 caracteres.";
-      } else if (error.code === 'permission-denied') {
-        errorMessage = "Você não tem permissão para criar usuários. Apenas super usuários podem realizar esta ação.";
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      toast({
-        title: "❌ Erro ao Criar Usuário",
-        description: errorMessage,
-        variant: "destructive"
-      });
-    } finally {
-      setAddingUser(false);
-    }
+    setUsers(firestoreUsers);
+    setManagementMode('firestore-readonly');
+    setError(null);
   };
 
-  // Atualizar usuário
-  const handleUpdateUser = async (userId: string) => {
-    try {
-      const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, {
-        displayName: editForm.displayName,
-        role: editForm.role,
-        updatedAt: new Date().toISOString()
-      });
-
-      // Atualizar lista local
-      setUsers(prev => prev.map(user => 
-        user.uid === userId 
-          ? { ...user, displayName: editForm.displayName }
-          : user
-      ));
-
-      setEditingUserId(null);
-      
-      toast({
-        title: "Sucesso!",
-        description: "Usuário atualizado com sucesso.",
-        variant: "default"
-      });
-
-    } catch (error: any) {
-      console.error('Erro ao atualizar usuário:', error);
-      toast({
-        title: "Erro",
-        description: error.message || "Erro ao atualizar usuário.",
-        variant: "destructive"
-      });
-    }
-  };
-
-  // Excluir usuário COMPLETAMENTE (Firebase Auth + Firestore + Lista local + Sincronização)
-  const handleDeleteUser = async (userId: string, userEmail: string) => {
-    if (!confirm(`⚠️ EXCLUSÃO COMPLETA!\n\nTem certeza que deseja excluir COMPLETAMENTE o usuário ${userEmail}?\n\nEsta ação:\n• Removerá do Firebase Authentication\n• Removerá do Firestore\n• Removerá da lista hardcoded\n• NÃO PODE SER DESFEITA\n\nDigite "EXCLUIR" para confirmar:`)) {
+  const loadUsers = async (background = false) => {
+    if (!currentUser) {
+      setLoading(false);
       return;
     }
 
-    const confirmation = prompt('Digite "EXCLUIR" em maiúsculas para confirmar:');
-    if (confirmation !== 'EXCLUIR') {
-      toast({
-        title: "Operação cancelada",
-        description: "Exclusão cancelada pelo usuário.",
-        variant: "default"
-      });
-      return;
+    if (background) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
     }
 
     try {
-      console.log(`🗑️ EXCLUSÃO COMPLETA: ${userEmail} (${userId})...`);
+      setError(null);
+      const payload = await requestApi<{ users: ManagedUser[] }>('GET');
+      setUsers(payload.users);
+      setManagementMode('api');
+    } catch (loadError) {
+      const status = loadError instanceof Error && 'status' in loadError ? (loadError as Error & { status?: number }).status : undefined;
 
-      // PASSO 1: Remover do Firebase Authentication via REST API
-      const isStaticBuild = process.env.NODE_ENV === 'production' && process.env.BUILD_TARGET === 'plesk';
-      
-      if (!isStaticBuild) {
+      if (status === 404) {
         try {
-          console.log('🔥 Tentando remover do Firebase Auth...');
-          const authResponse = await fetch('/api/admin/delete-user', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              action: 'deleteFromAuth',
-              uid: userId,
-              email: userEmail
-            })
-          });
-
-          const authData = await authResponse.json();
-          
-          if (authData.success) {
-            console.log('✅ Usuário removido do Firebase Auth');
-          } else {
-            console.warn('⚠️ Não conseguiu remover do Auth:', authData.message);
-          }
-        } catch (authError) {
-          console.warn('⚠️ Erro ao tentar remover do Auth:', authError);
+          await loadUsersFromFirestore();
+        } catch (fallbackError) {
+          const message =
+            fallbackError instanceof Error
+              ? fallbackError.message
+              : 'Nao foi possivel carregar os usuarios do Firestore.';
+          setError(message);
         }
       } else {
-        console.log('🏗️ Build estático - pulando remoção via API');
+        const message =
+          loadError instanceof Error
+            ? loadError.message
+            : 'Nao foi possivel carregar os usuarios administrativos.';
+        setError(message);
       }
-
-      // PASSO 2: Remover do Firestore
-      try {
-        console.log('� Removendo do Firestore...');
-        await deleteDoc(doc(db, 'users', userId));
-        console.log('✅ Usuário removido do Firestore');
-      } catch (firestoreError) {
-        console.warn('⚠️ Erro ao remover do Firestore:', firestoreError);
-      }
-
-      // PASSO 3: Remover da lista local imediatamente
-      console.log('🔥 Removendo da lista local...');
-      setUsers(prev => prev.filter(user => user.uid !== userId && user.email !== userEmail));
-      console.log('✅ Usuário removido da lista local');
-
-      // PASSO 4: Se for usuário hardcoded crítico, mostrar aviso especial
-      const isHardcoded = ['admin@ipda.org.br', 'marciodesk@ipda.app.br', 
-                          'presente@ipda.app.br', 'secretaria@ipda.org.br', 
-                          'auxiliar@ipda.org.br', 'cadastro@ipda.app.br'].includes(userEmail);
-
-      if (isHardcoded) {
-        console.log('⚠️ Usuário estava na lista hardcoded - removido da interface');
-        
-        toast({
-          title: "⚠️ Usuário hardcoded excluído!",
-          description: `${userEmail} foi removido da interface. Para exclusão permanente, remova também do código fonte em user-management.tsx`,
-          variant: "default"
-        });
-      } else {
-        toast({
-          title: "✅ Usuário excluído completamente!",
-          description: `${userEmail} foi removido do Firebase Auth, Firestore e interface.`,
-          variant: "default"
-        });
-      }
-
-      // PASSO 5: Forçar recarregamento completo após 2 segundos
-      setTimeout(() => {
-        console.log('🔄 Forçando recarregamento completo...');
-        loadUsers();
-        
-        // Se ainda aparecer, forçar remoção adicional
-        setTimeout(() => {
-          setUsers(prev => prev.filter(user => 
-            user.uid !== userId && 
-            user.email !== userEmail &&
-            !user.email.includes(userEmail.split('@')[0])
-          ));
-        }, 1000);
-      }, 2000);
-
-    } catch (error: any) {
-      console.error('❌ Erro na exclusão completa:', error);
-      
-      toast({
-        title: "❌ Erro na exclusão",
-        description: `Erro: ${error.message}. Tente recarregar a página ou contacte o administrador.`,
-        variant: "destructive"
-      });
+    } finally {
+      setRefreshing(false);
+      setLoading(false);
     }
   };
 
-  // Iniciar edição
-  const startEdit = (user: FirebaseUser) => {
-    setEditingUserId(user.uid);
-    setEditForm({
-      displayName: user.displayName || '',
-      role: isUserSuperUser(user.email) ? 'admin' : 'user'
-    });
-  };
-
-  // Verificar se é super usuário
-  const isUserSuperUser = (email: string) => {
-    return isSuperUser(email);
-  };
-
-  // Verificar o tipo de usuário baseado no perfil do Firestore
-  const getUserRole = (user: FirebaseUser) => {
-    // Primeiro verifica se é super usuário (hardcoded)
-    if (isUserSuperUser(user.email)) {
-      return 'super';
-    }
-    
-    // Verifica se é usuário editor específico
-    if (user.email === 'presente@ipda.app.br' || user.email === 'cadastro@ipda.app.br') {
-      return 'editor';
-    }
-    
-    // Depois verifica o perfil no Firestore
-    const profile = userProfiles.find(p => p.uid === user.uid || p.email === user.email);
-    if (profile) {
-      if (profile.role === 'admin') {
-        return 'admin';
-      }
-      if (profile.role === 'editor') {
-        return 'editor';
-      }
-    }
-    
-    return 'user';
-  };
-
-  // Verificar se é administrador (super usuário ou admin do Firestore)
-  const isUserAdmin = (user: FirebaseUser) => {
-    const role = getUserRole(user);
-    return role === 'super' || role === 'admin';
-  };
-
-  // Carregar usuários ao montar o componente
   useEffect(() => {
-    console.log('🔄 Componente montado, carregando usuários...');
-    loadUsers();
-  }, []);
+    if (currentUser) {
+      loadUsers();
+    }
+  }, [currentUser]);
 
-  // Função para forçar atualização completa
-  const forceRefresh = async () => {
-    console.log('🔄 FORÇANDO ATUALIZAÇÃO COMPLETA...');
-    setLoading(true);
-    
-    // Limpar estado atual
-    setUsers([]);
-    
-    // Aguardar um pouco
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Recarregar tudo
-    await loadUsers();
-    
-    toast({
-      title: "🔄 Atualização forçada",
-      description: "Lista de usuários foi recarregada completamente.",
-      variant: "default"
+  const filteredUsers = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    return users.filter((managedUser) => {
+      const matchesSearch =
+        !normalizedSearch ||
+        managedUser.email.toLowerCase().includes(normalizedSearch) ||
+        managedUser.displayName.toLowerCase().includes(normalizedSearch);
+      const matchesRole = roleFilter === 'all' || managedUser.accessProfile === roleFilter;
+
+      return matchesSearch && matchesRole;
+    });
+  }, [roleFilter, search, users]);
+
+  const stats = useMemo(() => {
+    const total = users.length;
+    const active = users.filter((managedUser) => managedUser.active).length;
+    const admins = users.filter((managedUser) => managedUser.accessProfile === 'admin').length;
+    const inconsistencies = users.filter((managedUser) => managedUser.syncStatus !== 'synced').length;
+
+    return { total, active, admins, inconsistencies };
+  }, [users]);
+  const visibleUsersCount = filteredUsers.length;
+
+  const createProfilePreview = getAccessProfileConfig(createForm.accessProfile);
+  const editProfilePreview = getAccessProfileConfig(editForm.accessProfile);
+  const createSelectedPermissions = normalizeNavigationPermissions(
+    createForm.permissions,
+    createForm.accessProfile
+  );
+  const editSelectedPermissions = normalizeNavigationPermissions(editForm.permissions, editForm.accessProfile);
+  const createHasCustomPermissions = hasCustomNavigationPermissions(
+    createForm.permissions,
+    createForm.accessProfile
+  );
+  const editHasCustomPermissions = hasCustomNavigationPermissions(editForm.permissions, editForm.accessProfile);
+
+  const resetCreateDialog = () => {
+    setSelectedTemplate('manual');
+    setCreateForm(buildFormState('basic'));
+    setCreateDialogOpen(false);
+  };
+
+  const applyTemplate = (templateKey: string) => {
+    setSelectedTemplate(templateKey);
+
+    if (templateKey === 'manual') {
+      setCreateForm(buildFormState('basic'));
+      return;
+    }
+
+    const template = TEMPLATE_PRESETS[templateKey];
+
+    if (!template) {
+      return;
+    }
+
+    setCreateForm(
+      buildFormState(template.accessProfile, {
+        email: template.email,
+        displayName: template.displayName,
+        password: template.password,
+        active: true,
+      })
+    );
+  };
+
+  const handleAccessProfileChange = (
+    accessProfile: ManagedAccessProfile,
+    setter: React.Dispatch<React.SetStateAction<UserFormState>>
+  ) => {
+    setter((currentForm) => ({
+      ...currentForm,
+      accessProfile,
+      permissions: [...getAccessProfileConfig(accessProfile).permissions],
+    }));
+  };
+
+  const handlePermissionToggle = (
+    permission: NavigationPermission,
+    checked: boolean,
+    setter: React.Dispatch<React.SetStateAction<UserFormState>>
+  ) => {
+    if (permission === 'dashboard') {
+      return;
+    }
+
+    setter((currentForm) => {
+      const permissionSet = new Set(
+        normalizeNavigationPermissions(currentForm.permissions, currentForm.accessProfile)
+      );
+
+      if (checked) {
+        permissionSet.add(permission);
+      } else {
+        permissionSet.delete(permission);
+      }
+
+      return {
+        ...currentForm,
+        permissions: normalizeNavigationPermissions(Array.from(permissionSet), currentForm.accessProfile),
+      };
     });
   };
+
+  const resetPermissionsToProfile = (
+    accessProfile: ManagedAccessProfile,
+    setter: React.Dispatch<React.SetStateAction<UserFormState>>
+  ) => {
+    setter((currentForm) => ({
+      ...currentForm,
+      permissions: [...getAccessProfileConfig(accessProfile).permissions],
+    }));
+  };
+
+  const handleCreateUser = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (isReadOnlyMode) {
+      toast({
+        title: 'Modo somente leitura',
+        description: 'Neste deploy estático, a criação de usuários exige a API administrativa em ambiente Node.js.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const payload = await requestApi<CreateManagedUserResponse>('POST', {
+        email: createForm.email,
+        displayName: createForm.displayName,
+        password: createForm.password,
+        accessProfile: createForm.accessProfile,
+        permissions: createSelectedPermissions,
+      });
+
+      setUsers((currentUsers) => {
+        const remainingUsers = currentUsers.filter((managedUser) => managedUser.uid !== payload.user.uid);
+        return [...remainingUsers, payload.user].sort((left, right) =>
+          `${left.displayName} ${left.email}`.localeCompare(`${right.displayName} ${right.email}`, 'pt-BR', {
+            sensitivity: 'base',
+          })
+        );
+      });
+
+      toast({
+        title: payload.mode === 'resynced' ? 'Usuario sincronizado' : 'Usuario criado',
+        description:
+          payload.mode === 'resynced'
+            ? `${createForm.displayName} foi sincronizado no Firebase Authentication e no Firestore.`
+            : `${createForm.displayName} agora pode acessar o aplicativo com o perfil ${createProfilePreview.shortLabel}.`,
+      });
+
+      resetCreateDialog();
+      await loadUsers(true);
+    } catch (submitError) {
+      toast({
+        title: 'Erro ao criar usuario',
+        description:
+          submitError instanceof Error ? submitError.message : 'Nao foi possivel criar o usuario.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const openEditDialog = (managedUser: ManagedUser) => {
+    setEditForm(
+      buildFormState(managedUser.accessProfile, {
+        uid: managedUser.uid,
+        email: managedUser.email,
+        displayName: managedUser.displayName,
+        password: '',
+        permissions: managedUser.permissions,
+        active: managedUser.active,
+      })
+    );
+    setEditDialogOpen(true);
+  };
+
+  const handleEditUser = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!editForm.uid) {
+      return;
+    }
+
+    if (isReadOnlyMode) {
+      toast({
+        title: 'Modo somente leitura',
+        description: 'Neste deploy estático, a edição de usuários exige a API administrativa em ambiente Node.js.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      await requestApi('PATCH', {
+        uid: editForm.uid,
+        email: editForm.email,
+        displayName: editForm.displayName,
+        password: editForm.password || undefined,
+        accessProfile: editForm.accessProfile,
+        active: editForm.active,
+        permissions: editSelectedPermissions,
+      });
+
+      toast({
+        title: 'Usuario atualizado',
+        description: `${editForm.displayName} foi atualizado com o perfil ${editProfilePreview.shortLabel}.`,
+      });
+
+      setEditDialogOpen(false);
+      await loadUsers(true);
+    } catch (submitError) {
+      toast({
+        title: 'Erro ao atualizar usuario',
+        description:
+          submitError instanceof Error ? submitError.message : 'Nao foi possivel atualizar o usuario.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleToggleStatus = async (managedUser: ManagedUser, nextActive: boolean) => {
+    if (isReadOnlyMode) {
+      toast({
+        title: 'Modo somente leitura',
+        description: 'Neste deploy estático, a alteração de status exige a API administrativa em ambiente Node.js.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setTogglingUid(managedUser.uid);
+
+    try {
+      await requestApi('PATCH', {
+        uid: managedUser.uid,
+        email: managedUser.email,
+        displayName: managedUser.displayName,
+        accessProfile: managedUser.accessProfile,
+        active: nextActive,
+        permissions: managedUser.permissions,
+      });
+
+      setUsers((currentUsers) =>
+        currentUsers.map((currentManagedUser) =>
+          currentManagedUser.uid === managedUser.uid
+            ? {
+                ...currentManagedUser,
+                active: nextActive,
+                disabled: !nextActive,
+              }
+            : currentManagedUser
+        )
+      );
+
+      toast({
+        title: nextActive ? 'Usuario ativado' : 'Usuario desativado',
+        description: `${managedUser.displayName} foi ${nextActive ? 'ativado' : 'desativado'} com sucesso.`,
+      });
+    } catch (toggleError) {
+      toast({
+        title: 'Erro ao alterar status',
+        description:
+          toggleError instanceof Error ? toggleError.message : 'Nao foi possivel alterar o status do usuario.',
+        variant: 'destructive',
+      });
+    } finally {
+      setTogglingUid(null);
+    }
+  };
+
+  const handleDeleteUser = async (managedUser: ManagedUser) => {
+    if (isReadOnlyMode) {
+      toast({
+        title: 'Modo somente leitura',
+        description: 'Neste deploy estático, a exclusão de usuários exige a API administrativa em ambiente Node.js.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setDeletingUid(managedUser.uid);
+
+    try {
+      await requestApi('DELETE', { uid: managedUser.uid });
+      setUsers((currentUsers) => currentUsers.filter((user) => user.uid !== managedUser.uid));
+
+      toast({
+        title: 'Usuario excluido',
+        description: `${managedUser.displayName} foi removido do Firebase e do painel.`,
+      });
+    } catch (deleteError) {
+      toast({
+        title: 'Erro ao excluir usuario',
+        description:
+          deleteError instanceof Error ? deleteError.message : 'Nao foi possivel excluir o usuario.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingUid(null);
+    }
+  };
+
+  const renderPermissionSelector = (
+    form: UserFormState,
+    selectedPermissions: NavigationPermission[],
+    hasCustomPermissions: boolean,
+    setter: React.Dispatch<React.SetStateAction<UserFormState>>
+  ) => (
+    <div className="space-y-4 rounded-xl border border-dashed border-slate-300 p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="font-medium text-slate-900">Abas e módulos liberados</p>
+          <p className="text-sm text-muted-foreground">
+            Marque somente o que este usuário pode visualizar no aplicativo.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline">{selectedPermissions.length} acesso(s)</Badge>
+          {hasCustomPermissions && (
+            <Badge className="border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50">
+              Personalizado
+            </Badge>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!hasCustomPermissions || submitting}
+            onClick={() => resetPermissionsToProfile(form.accessProfile, setter)}
+          >
+            Restaurar perfil
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        {NAVIGATION_PERMISSION_OPTIONS.map((option) => {
+          const checked = selectedPermissions.includes(option.permission);
+          const locked = option.permission === 'dashboard';
+
+          return (
+            <label
+              key={option.permission}
+              className={`flex items-start gap-3 rounded-xl border p-3 transition-colors ${
+                checked ? 'border-blue-200 bg-blue-50/70' : 'border-slate-200 bg-white'
+              } ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+            >
+              <Checkbox
+                checked={checked}
+                disabled={locked || submitting}
+                onCheckedChange={(value) => handlePermissionToggle(option.permission, value === true, setter)}
+                className="mt-1"
+              />
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-slate-900">{option.label}</span>
+                  {locked && (
+                    <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
+                      Obrigatório
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">{option.description}</p>
+              </div>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   if (loading) {
     return (
       <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-center">
-            <RefreshCw className="h-6 w-6 animate-spin mr-2" />
-            Carregando usuários...
-          </div>
+        <CardContent className="flex items-center justify-center gap-3 py-12">
+          <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">Carregando usuarios administrativos...</span>
         </CardContent>
       </Card>
     );
@@ -693,423 +851,849 @@ export function UserManagement() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <User className="h-5 w-5" />
-              Gerenciamento de Usuários
+      {embedded && (
+        <Card className="border-blue-200 bg-gradient-to-r from-blue-50 via-white to-slate-50 shadow-sm">
+          <CardContent className="flex flex-col gap-4 p-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-2">
+              <Badge className="w-fit bg-blue-600 text-white hover:bg-blue-600">Usuarios e acessos</Badge>
+              <div>
+                <p className="text-xl font-semibold text-slate-900">Adicionar usuario pelo painel</p>
+                <p className="max-w-2xl text-sm text-muted-foreground">
+                  Crie contas direto em Configuracoes e escolha exatamente quais abas cada operador pode ver.
+                </p>
+              </div>
             </div>
-            <div className="flex gap-2">
-              <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button className="gap-2">
-                    <UserPlus className="h-4 w-4" />
-                    Adicionar Usuário
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[425px] max-h-[90vh] overflow-y-auto">
+
+            <Button onClick={() => setCreateDialogOpen(true)} className="w-full sm:w-auto" disabled={isReadOnlyMode}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Adicionar usuario
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className={embedded ? 'border-border/60 shadow-sm' : 'shadow-sm'}>
+        <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="space-y-2">
+            {!embedded && (
+              <Badge variant="outline" className="w-fit border-slate-300 bg-slate-50 text-slate-700">
+                Administracao de acesso
+              </Badge>
+            )}
+            <div>
+              <CardTitle className="flex items-center gap-2 text-2xl">
+                <UserCog className="h-5 w-5" />
+                {embedded ? 'Usuarios e permissoes' : 'Gerenciamento de Usuarios'}
+              </CardTitle>
+              <CardDescription className="max-w-3xl pt-1">
+                Crie contas, ajuste perfis de acesso, selecione abas liberadas e mantenha o Firebase
+                Authentication sincronizado com o Firestore.
+              </CardDescription>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button variant="outline" onClick={() => loadUsers(true)} disabled={refreshing}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+              Atualizar
+            </Button>
+
+            <Dialog open={createDialogOpen} onOpenChange={(open) => (!open ? resetCreateDialog() : setCreateDialogOpen(open))}>
+            <DialogTrigger asChild>
+                <Button disabled={isReadOnlyMode}>
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Adicionar usuario
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
                 <DialogHeader>
-                  <DialogTitle>Adicionar Novo Usuário</DialogTitle>
+                  <DialogTitle>Novo usuario do sistema</DialogTitle>
                   <DialogDescription>
-                    Criar uma nova conta de usuário para acesso ao sistema.
+                    Crie o usuario diretamente no Firebase e salve o perfil operacional no painel.
                   </DialogDescription>
                 </DialogHeader>
-                
-                <form onSubmit={handleAddUser} className="space-y-4">
-                  {/* Template de usuário pré-definido */}
-                  <div className="space-y-2">
-                    <Label>Template de Usuário IPDA</Label>
-                    <select
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      onChange={(e) => {
-                        const template = e.target.value;
-                        if (template === 'secretaria') {
-                          setNewUserForm({
-                            email: 'secretaria@ipda.org.br',
-                            displayName: 'Secretaria IPDA',
-                            password: 'SecretariaIPDA@2025'
-                          });
-                        } else if (template === 'auxiliar') {
-                          setNewUserForm({
-                            email: 'auxiliar@ipda.org.br',
-                            displayName: 'Auxiliar IPDA',
-                            password: 'AuxiliarIPDA@2025'
-                          });
-                        } else if (template === 'cadastro') {
-                          setNewUserForm({
-                            email: 'cadastro@ipda.app.br',
-                            displayName: 'Cadastro IPDA',
-                            password: 'CadastroIPDA@2025'
-                          });
-                        } else if (template === 'presente') {
-                          setNewUserForm({
-                            email: 'presente2@ipda.app.br',
-                            displayName: 'Controle Presença IPDA',
-                            password: 'PresenteIPDA@2025'
-                          });
+
+                <form className="space-y-5" onSubmit={handleCreateUser}>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Template rapido</Label>
+                      <Select value={selectedTemplate} onValueChange={applyTemplate}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione um template IPDA" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="manual">Preenchimento manual</SelectItem>
+                          <SelectItem value="secretaria">Secretaria IPDA</SelectItem>
+                          <SelectItem value="auxiliar">Auxiliar IPDA</SelectItem>
+                          <SelectItem value="cadastro">Cadastro IPDA</SelectItem>
+                          <SelectItem value="presente">Controle de Presenca</SelectItem>
+                          <SelectItem value="batismo">Operador de Batismo</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="new-displayName">Nome completo</Label>
+                      <Input
+                        id="new-displayName"
+                        value={createForm.displayName}
+                        onChange={(event) =>
+                          setCreateForm((currentForm) => ({ ...currentForm, displayName: event.target.value }))
                         }
-                      }}
-                    >
-                      <option value="">Selecione um template ou preencha manualmente</option>
-                      <option value="secretaria">📋 Secretaria IPDA</option>
-                      <option value="auxiliar">🤝 Auxiliar IPDA</option>
-                      <option value="cadastro">📝 Cadastro IPDA</option>
-                      <option value="presente">✅ Controle de Presença</option>
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="email">Email</Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        placeholder="usuario@ipda.org.br"
-                        value={newUserForm.email}
-                        onChange={(e) => setNewUserForm(prev => ({ ...prev, email: e.target.value }))}
+                        placeholder="Nome do usuario"
                         required
-                        className="w-full"
-                      />
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="displayName">Nome de Exibição</Label>
-                      <Input
-                        id="displayName"
-                        placeholder="Nome do usuário"
-                        value={newUserForm.displayName}
-                        onChange={(e) => setNewUserForm(prev => ({ ...prev, displayName: e.target.value }))}
-                        className="w-full"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-green-700">✅ Permissão Automática</Label>
-                      <div className="flex h-10 w-full rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
-                        🔒 Usuário Comum (BASIC_USER) - Automático
-                      </div>
-                      <p className="text-xs text-green-600">
-                        Todos os usuários criados terão automaticamente permissões de usuário comum.
-                      </p>
+                      <Label htmlFor="new-email">Email</Label>
+                      <Input
+                        id="new-email"
+                        type="email"
+                        value={createForm.email}
+                        onChange={(event) =>
+                          setCreateForm((currentForm) => ({ ...currentForm, email: event.target.value }))
+                        }
+                        placeholder="usuario@ipda.app.br"
+                        required
+                      />
                     </div>
-                    
+
                     <div className="space-y-2">
-                      <Label htmlFor="password">Senha</Label>
-                      <div className="relative">
-                        <Input
-                          id="password"
-                          type={showPassword ? "text" : "password"}
-                          placeholder="Senha forte (min. 6 caracteres)"
-                          value={newUserForm.password}
-                          onChange={(e) => setNewUserForm(prev => ({ ...prev, password: e.target.value }))}
-                          required
-                          minLength={6}
-                          className="w-full pr-10"
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="absolute right-0 top-0 h-full px-3"
-                          onClick={() => setShowPassword(!showPassword)}
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </Button>
-                      </div>
+                      <Label htmlFor="new-password">Senha inicial</Label>
+                      <Input
+                        id="new-password"
+                        type="password"
+                        value={createForm.password}
+                        onChange={(event) =>
+                          setCreateForm((currentForm) => ({ ...currentForm, password: event.target.value }))
+                        }
+                        placeholder="Minimo de 6 caracteres"
+                        minLength={6}
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Perfil de acesso</Label>
+                      <Select
+                        value={createForm.accessProfile}
+                        onValueChange={(value) =>
+                          handleAccessProfileChange(value as ManagedAccessProfile, setCreateForm)
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {accessProfileOptions.map((profile) => (
+                            <SelectItem key={profile.accessProfile} value={profile.accessProfile}>
+                              {profile.shortLabel}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
 
-                  <Alert>
-                    <Info className="h-4 w-4" />
-                    <AlertDescription>
-                      <strong>Informação:</strong> Usuários criados aqui terão acesso imediato ao sistema. 
-                      Administradores têm acesso total às configurações.
+                  {renderPermissionSelector(
+                    createForm,
+                    createSelectedPermissions,
+                    createHasCustomPermissions,
+                    setCreateForm
+                  )}
+
+                  <Alert className="border-slate-200 bg-slate-50">
+                    <Shield className="h-4 w-4" />
+                    <AlertDescription className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium text-slate-900">{createProfilePreview.label}</p>
+                        {createHasCustomPermissions && (
+                          <Badge className="border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50">
+                            Perfil personalizado
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-slate-600">{createProfilePreview.description}</p>
+                      <p className="text-xs text-slate-500">
+                        Permissoes liberadas: {summarizePermissions(createSelectedPermissions).join(', ')}
+                      </p>
                     </AlertDescription>
                   </Alert>
-                  
-                  <div className="flex flex-col sm:flex-row justify-end gap-2">
-                    <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} className="w-full sm:w-auto">
+
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={resetCreateDialog}>
                       Cancelar
                     </Button>
-                    <Button type="submit" disabled={addingUser} className="w-full sm:w-auto">
-                      {addingUser ? (
+                    <Button type="submit" disabled={submitting}>
+                      {submitting ? (
                         <>
-                          <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
                           Criando...
                         </>
                       ) : (
                         <>
-                          <UserPlus className="h-4 w-4 mr-2" />
-                          Criar Usuário
+                          <UserPlus className="mr-2 h-4 w-4" />
+                          Criar usuario
                         </>
                       )}
                     </Button>
-                  </div>
+                  </DialogFooter>
                 </form>
               </DialogContent>
             </Dialog>
-            </div>
-          </CardTitle>
+          </div>
         </CardHeader>
       </Card>
 
-      {/* Estatísticas */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-2">
-              <Shield className="h-5 w-5 text-red-500" />
-              <div>
-                <p className="text-sm text-muted-foreground">Super Usuários</p>
-                <p className="text-2xl font-bold">
-                  {users.filter(user => isUserSuperUser(user.email)).length}
-                </p>
-              </div>
+          <CardContent className="flex items-center gap-3 py-6">
+            <Users className="h-9 w-9 rounded-full bg-slate-100 p-2 text-slate-700" />
+            <div>
+              <p className="text-sm text-muted-foreground">Total de usuarios</p>
+              <p className="text-2xl font-semibold">{stats.total}</p>
             </div>
           </CardContent>
         </Card>
-        
+
         <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-2">
-              <User className="h-5 w-5 text-blue-500" />
-              <div>
-                <p className="text-sm text-muted-foreground">Administradores</p>
-                <p className="text-2xl font-bold">
-                  {users.filter(user => !isUserSuperUser(user.email) && getUserRole(user) === 'admin').length}
-                </p>
-              </div>
+          <CardContent className="flex items-center gap-3 py-6">
+            <Shield className="h-9 w-9 rounded-full bg-blue-100 p-2 text-blue-700" />
+            <div>
+              <p className="text-sm text-muted-foreground">Administradores</p>
+              <p className="text-2xl font-semibold">{stats.admins}</p>
             </div>
           </CardContent>
         </Card>
-        
+
         <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-2">
-              <User className="h-5 w-5 text-green-500" />
-              <div>
-                <p className="text-sm text-muted-foreground">Usuários Normais</p>
-                <p className="text-2xl font-bold">
-                  {users.filter(user => getUserRole(user) === 'user').length}
-                </p>
-              </div>
+          <CardContent className="flex items-center gap-3 py-6">
+            <UserCog className="h-9 w-9 rounded-full bg-emerald-100 p-2 text-emerald-700" />
+            <div>
+              <p className="text-sm text-muted-foreground">Ativos</p>
+              <p className="text-2xl font-semibold">{stats.active}</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="flex items-center gap-3 py-6">
+            <AlertTriangle className="h-9 w-9 rounded-full bg-amber-100 p-2 text-amber-700" />
+            <div>
+              <p className="text-sm text-muted-foreground">Pendencias de sync</p>
+              <p className="text-2xl font-semibold">{stats.inconsistencies}</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Lista de Usuários */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-            <span>Usuários Cadastrados</span>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={loadUsers}>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Atualizar
-              </Button>
-              <Button variant="secondary" size="sm" onClick={forceRefresh}>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Sincronização Forçada
-              </Button>
+      <Card className="shadow-sm">
+        <CardHeader className="gap-3">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Usuarios cadastrados
+              </CardTitle>
+              <CardDescription>
+                Visualizacao rapida das contas ja cadastradas no sistema.
+              </CardDescription>
             </div>
-          </CardTitle>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline">{visibleUsersCount} exibido(s)</Badge>
+              {visibleUsersCount !== users.length && (
+                <Badge variant="secondary">{users.length} no total</Badge>
+              )}
+            </div>
+          </div>
         </CardHeader>
+
         <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="min-w-[200px]">Email</TableHead>
-                  <TableHead className="min-w-[150px]">Nome</TableHead>
-                  <TableHead className="min-w-[120px]">Tipo</TableHead>
-                  <TableHead className="min-w-[100px]">Status</TableHead>
-                  <TableHead className="min-w-[150px] hidden md:table-cell">Último Acesso</TableHead>
-                  <TableHead className="min-w-[80px]">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-            <TableBody>
-              {users.map((user) => (
-                <TableRow key={user.uid}>
-                  <TableCell className="font-medium">{user.email}</TableCell>
-                  <TableCell>
-                    {editingUserId === user.uid ? (
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                        <Input
-                          value={editForm.displayName}
-                          onChange={(e) => setEditForm(prev => ({ ...prev, displayName: e.target.value }))}
-                          className="w-full sm:w-32"
-                          placeholder="Nome do usuário"
-                        />
-                        <div className="flex gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => handleUpdateUser(user.uid)}>
-                            <Check className="h-4 w-4" />
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setEditingUserId(null)}>
-                            <X className="h-4 w-4" />
-                          </Button>
+          {filteredUsers.length === 0 ? (
+            <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+              Nenhum usuario encontrado para os filtros atuais.
+            </div>
+          ) : (
+            <div>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {filteredUsers.map((managedUser) => (
+                  <div key={`summary-${managedUser.uid}`} className="rounded-xl border bg-white p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <p className="truncate font-medium text-slate-900">{managedUser.displayName}</p>
+                        <p className="truncate text-sm text-muted-foreground">{managedUser.email}</p>
+                      </div>
+                      <Badge
+                        variant={managedUser.active ? 'default' : 'secondary'}
+                        className={managedUser.active ? 'bg-emerald-600 text-white hover:bg-emerald-600' : undefined}
+                      >
+                        {managedUser.active ? 'Ativo' : 'Inativo'}
+                      </Badge>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Badge className={getRoleBadge(managedUser.accessProfile)}>
+                        {getAccessProfileConfig(managedUser.accessProfile).shortLabel}
+                      </Badge>
+                      {managedUser.isProtected && (
+                        <Badge variant="outline" className="border-slate-300 bg-slate-50 text-slate-700">
+                          Protegido
+                        </Badge>
+                      )}
+                      {hasCustomNavigationPermissions(managedUser.permissions, managedUser.accessProfile) && (
+                        <Badge className="border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50">
+                          Personalizado
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-1">
+                      {summarizePermissions(managedUser.permissions)
+                        .slice(0, 3)
+                        .map((label) => (
+                          <Badge key={`${managedUser.uid}-summary-${label}`} variant="secondary" className="text-[11px]">
+                            {label}
+                          </Badge>
+                        ))}
+                      {managedUser.permissions.length > 3 && (
+                        <Badge variant="outline" className="text-[11px]">
+                          +{managedUser.permissions.length - 3}
+                        </Badge>
+                      )}
+                    </div>
+
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      Ultimo acesso: {formatDateTime(managedUser.lastLoginAt)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="gap-4">
+          <div>
+            <CardTitle>Painel operacional</CardTitle>
+            <CardDescription>
+              Busque usuarios, filtre por perfil e administre o acesso sem sair do aplicativo.
+            </CardDescription>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Buscar por nome ou email"
+                className="pl-9"
+              />
+            </div>
+
+            <Select value={roleFilter} onValueChange={(value) => setRoleFilter(value as RoleFilterValue)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os perfis</SelectItem>
+                {accessProfileOptions.map((profile) => (
+                  <SelectItem key={profile.accessProfile} value={profile.accessProfile}>
+                    {profile.shortLabel}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {isReadOnlyMode && (
+            <Alert className="border-blue-200 bg-blue-50 text-blue-900">
+              <Shield className="h-4 w-4" />
+              <AlertDescription>
+                Lista carregada diretamente do Firestore porque este deploy não possui a rota
+                `/api/admin/users`. As contas ficam visíveis normalmente, mas as ações de criar,
+                editar, ativar e excluir permanecem indisponíveis nesta hospedagem estática.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {stats.inconsistencies > 0 && (
+            <Alert className="border-amber-200 bg-amber-50 text-amber-900">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                Existem usuarios sem sincronizacao completa entre Authentication e Firestore. Eles continuam
+                visiveis para limpeza ou ajuste administrativo.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <Alert className="border-slate-200 bg-slate-50">
+            <Shield className="h-4 w-4" />
+            <AlertDescription>
+              Contas com perfil de administrador ficam somente para visualizacao neste painel. Aqui o foco e
+              criar e ajustar usuarios operacionais, como o operador de batismo com acesso apenas a
+              `Dashboard` e `Batismo`.
+            </AlertDescription>
+          </Alert>
+
+          <div className="space-y-3 md:hidden">
+            {filteredUsers.length === 0 ? (
+              <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+                Nenhum usuario encontrado para os filtros atuais.
+              </div>
+            ) : (
+              filteredUsers.map((managedUser) => {
+                const syncBadge = getSyncBadge(managedUser.syncStatus);
+                const isCurrentSession = managedUser.uid === currentUser?.uid;
+                const actionsLocked =
+                  isReadOnlyMode ||
+                  managedUser.isProtected ||
+                  managedUser.accessProfile === 'admin' ||
+                  managedUser.role === 'admin' ||
+                  isCurrentSession;
+
+                return (
+                  <div key={`mobile-${managedUser.uid}`} className="rounded-xl border bg-white p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-900">{managedUser.displayName}</p>
+                        <p className="truncate text-sm text-muted-foreground">{managedUser.email}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Criado em {formatDateTime(managedUser.createdAt)}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={managedUser.active ? 'default' : 'secondary'}
+                        className={
+                          managedUser.active ? 'bg-emerald-600 text-white hover:bg-emerald-600' : undefined
+                        }
+                      >
+                        {managedUser.active ? 'Ativo' : 'Inativo'}
+                      </Badge>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Badge className={getRoleBadge(managedUser.accessProfile)}>
+                        {getAccessProfileConfig(managedUser.accessProfile).shortLabel}
+                      </Badge>
+                      <Badge variant="outline" className={syncBadge.className}>
+                        {syncBadge.label}
+                      </Badge>
+                      {(managedUser.isProtected || managedUser.accessProfile === 'admin') && (
+                        <Badge variant="outline" className="border-slate-300 bg-slate-50 text-slate-700">
+                          Protegido
+                        </Badge>
+                      )}
+                      {hasCustomNavigationPermissions(managedUser.permissions, managedUser.accessProfile) && (
+                        <Badge className="border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50">
+                          Personalizado
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Permissões</p>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {summarizePermissions(managedUser.permissions).map((label) => (
+                            <Badge key={`mobile-${managedUser.uid}-${label}`} variant="secondary" className="text-[11px]">
+                              {label}
+                            </Badge>
+                          ))}
                         </div>
                       </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="truncate">{user.displayName || 'Sem nome'}</span>
-                        {!isUserSuperUser(user.email) && user.isFromFirestore && (
-                          <Button 
-                            size="sm" 
-                            variant="ghost" 
-                            onClick={() => startEdit(user)}
-                            className="flex-shrink-0"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {editingUserId === user.uid ? (
-                      <select
-                        className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
-                        value={editForm.role}
-                        onChange={(e) => setEditForm(prev => ({ ...prev, role: e.target.value as 'user' | 'admin' }))}
-                      >
-                        <option value="user">Usuário Normal</option>
-                        <option value="admin">Administrador</option>
-                      </select>
-                    ) : (
-                      <>
-                        {(() => {
-                          const role = getUserRole(user);
-                          if (role === 'super') {
-                            return (
-                              <Badge variant="destructive" className="gap-1">
-                                <Shield className="h-3 w-3" />
-                                Super Usuário
-                              </Badge>
-                            );
-                          } else if (role === 'admin') {
-                            return (
-                              <Badge variant="default" className="gap-1">
-                                <Shield className="h-3 w-3" />
-                                Administrador
-                              </Badge>
-                            );
-                          } else {
-                            return (
-                              <Badge variant="secondary" className="gap-1">
-                                <User className="h-3 w-3" />
-                                Usuário Normal
-                              </Badge>
-                            );
-                          }
-                        })()}
-                      </>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={user.emailVerified ? "default" : "secondary"}>
-                      {user.emailVerified ? "Verificado" : "Não verificado"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell">
-                    {user.lastSignInTime 
-                      ? new Date(user.lastSignInTime).toLocaleString('pt-BR')
-                      : 'Nunca'
-                    }
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      {/* Botão de ações para mobile */}
-                      <div className="md:hidden">
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="ghost" size="sm">
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-48 p-2">
-                            <div className="space-y-2 text-sm">
-                              <div>
-                                <strong>Último Acesso:</strong>
-                                <br />
-                                {user.lastSignInTime 
-                                  ? new Date(user.lastSignInTime).toLocaleString('pt-BR')
-                                  : 'Nunca'
-                                }
-                              </div>
-                              {(() => {
-                                // Debug para mobile
-                                if (user.email === 'achilles.oliveira.souza@gmail.com') {
-                                  console.log('🔍 Debug Achilles (Mobile):', {
-                                    email: user.email,
-                                    isFromFirestore: user.isFromFirestore,
-                                    isUserSuperUser: isUserSuperUser(user.email),
-                                    currentUserEmail: currentUser?.email,
-                                    canDelete: user.isFromFirestore && !isUserSuperUser(user.email) && user.email !== currentUser?.email
-                                  });
-                                }
-                                
-                                return user.isFromFirestore && !isUserSuperUser(user.email) && user.email !== currentUser?.email && (
-                                  <Button 
-                                    variant="destructive" 
-                                    size="sm"
-                                    className="w-full"
-                                    onClick={() => handleDeleteUser(user.uid, user.email)}
-                                  >
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Excluir Usuário
-                                  </Button>
-                                );
-                              })()}
-                            </div>
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      
-                      {/* Botões para desktop */}
-                      <div className="hidden md:flex items-center gap-2">
-                        {(() => {
-                          // Debug para o usuário achilles
-                          if (user.email === 'achilles.oliveira.souza@gmail.com') {
-                            console.log('🔍 Debug Achilles:', {
-                              email: user.email,
-                              isFromFirestore: user.isFromFirestore,
-                              isUserSuperUser: isUserSuperUser(user.email),
-                              currentUserEmail: currentUser?.email,
-                              canDelete: user.isFromFirestore && !isUserSuperUser(user.email) && user.email !== currentUser?.email
-                            });
-                          }
-                          
-                          return user.isFromFirestore && !isUserSuperUser(user.email) && user.email !== currentUser?.email && (
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              className="text-red-600 hover:text-red-800"
-                              onClick={() => handleDeleteUser(user.uid, user.email)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          );
-                        })()}
+
+                      <div className="grid gap-2 rounded-lg border bg-slate-50 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm text-slate-600">Email</span>
+                          <span className="text-sm font-medium text-slate-900">
+                            {managedUser.emailVerified ? 'Verificado' : 'Pendente'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm text-slate-600">Último acesso</span>
+                          <span className="text-right text-sm font-medium text-slate-900">
+                            {formatDateTime(managedUser.lastLoginAt)}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {users.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                    Nenhum usuário encontrado
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+
+                    <div className="mt-3 grid gap-2">
+                      <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+                        <span className="text-sm text-muted-foreground">Conta ativa</span>
+                        <Switch
+                          checked={managedUser.active}
+                          disabled={actionsLocked || togglingUid === managedUser.uid}
+                          onCheckedChange={(checked) => handleToggleStatus(managedUser, checked)}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEditDialog(managedUser)}
+                          disabled={actionsLocked}
+                          className="w-full"
+                        >
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Editar
+                        </Button>
+
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                              disabled={actionsLocked || deletingUid === managedUser.uid}
+                            >
+                              {deletingUid === managedUser.uid ? (
+                                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="mr-2 h-4 w-4" />
+                              )}
+                              Excluir
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Excluir usuario</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Esta acao remove a conta do Firebase Authentication e o perfil salvo no
+                                Firestore. Deseja continuar com a exclusao de {managedUser.displayName}?
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-rose-600 hover:bg-rose-700"
+                                onClick={() => handleDeleteUser(managedUser)}
+                              >
+                                Excluir usuario
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="hidden rounded-xl border md:block">
+            <div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[240px]">Usuario</TableHead>
+                    <TableHead className="min-w-[140px]">Perfil</TableHead>
+                    <TableHead className="min-w-[140px]">Status</TableHead>
+                    <TableHead className="min-w-[160px]">Ultimo acesso</TableHead>
+                    <TableHead className="min-w-[140px]">Sincronizacao</TableHead>
+                    <TableHead className="min-w-[180px] text-right">Acoes</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredUsers.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                        Nenhum usuario encontrado para os filtros atuais.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredUsers.map((managedUser) => {
+                      const syncBadge = getSyncBadge(managedUser.syncStatus);
+                      const isCurrentSession = managedUser.uid === currentUser?.uid;
+                      const actionsLocked =
+                        isReadOnlyMode ||
+                        managedUser.isProtected ||
+                        managedUser.accessProfile === 'admin' ||
+                        managedUser.role === 'admin' ||
+                        isCurrentSession;
+
+                      return (
+                        <TableRow key={managedUser.uid}>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{managedUser.displayName}</span>
+                                {(managedUser.isProtected || managedUser.accessProfile === 'admin') && (
+                                  <Badge variant="outline" className="border-slate-300 bg-slate-50 text-slate-700">
+                                    Protegido
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-sm text-muted-foreground">{managedUser.email}</p>
+                              <p className="text-xs text-muted-foreground">
+                                Criado em {formatDateTime(managedUser.createdAt)}
+                              </p>
+                            </div>
+                          </TableCell>
+
+                          <TableCell>
+                            <div className="space-y-2">
+                              <Badge className={getRoleBadge(managedUser.accessProfile)}>
+                                {getAccessProfileConfig(managedUser.accessProfile).shortLabel}
+                              </Badge>
+                              {hasCustomNavigationPermissions(managedUser.permissions, managedUser.accessProfile) && (
+                                <Badge className="border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50">
+                                  Personalizado
+                                </Badge>
+                              )}
+                              <p className="text-xs text-muted-foreground">
+                                {getAccessProfileConfig(managedUser.accessProfile).description}
+                              </p>
+                              <div className="flex flex-wrap gap-1">
+                                {summarizePermissions(managedUser.permissions)
+                                  .slice(0, 4)
+                                  .map((label) => (
+                                    <Badge key={`${managedUser.uid}-${label}`} variant="secondary" className="text-[11px]">
+                                      {label}
+                                    </Badge>
+                                  ))}
+                                {managedUser.permissions.length > 4 && (
+                                  <Badge variant="outline" className="text-[11px]">
+                                    +{managedUser.permissions.length - 4}
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+
+                          <TableCell>
+                            <div className="space-y-2">
+                              <Badge
+                                variant={managedUser.active ? 'default' : 'secondary'}
+                                className={
+                                  managedUser.active
+                                    ? 'bg-emerald-600 text-white hover:bg-emerald-600'
+                                    : undefined
+                                }
+                              >
+                                {managedUser.active ? 'Ativo' : 'Inativo'}
+                              </Badge>
+                              <p className="text-xs text-muted-foreground">
+                                {managedUser.emailVerified ? 'Email verificado' : 'Email pendente'}
+                              </p>
+                            </div>
+                          </TableCell>
+
+                          <TableCell>{formatDateTime(managedUser.lastLoginAt)}</TableCell>
+
+                          <TableCell>
+                            <Badge variant="outline" className={syncBadge.className}>
+                              {syncBadge.label}
+                            </Badge>
+                          </TableCell>
+
+                          <TableCell>
+                            <div className="flex items-center justify-end gap-2">
+                              <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
+                                <span className="text-xs text-muted-foreground">Ativo</span>
+                                <Switch
+                                  checked={managedUser.active}
+                                  disabled={actionsLocked || togglingUid === managedUser.uid}
+                                  onCheckedChange={(checked) => handleToggleStatus(managedUser, checked)}
+                                />
+                              </div>
+
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openEditDialog(managedUser)}
+                                disabled={actionsLocked}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                                    disabled={actionsLocked || deletingUid === managedUser.uid}
+                                  >
+                                    {deletingUid === managedUser.uid ? (
+                                      <RefreshCw className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Excluir usuario</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Esta acao remove a conta do Firebase Authentication e o perfil salvo no
+                                      Firestore. Deseja continuar com a exclusao de {managedUser.displayName}?
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      className="bg-rose-600 hover:bg-rose-700"
+                                      onClick={() => handleDeleteUser(managedUser)}
+                                    >
+                                      Excluir usuario
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Editar usuario</DialogTitle>
+            <DialogDescription>
+              Ajuste perfil, status e credenciais operacionais sem sair da area administrativa.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form className="space-y-5" onSubmit={handleEditUser}>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="edit-displayName">Nome completo</Label>
+                <Input
+                  id="edit-displayName"
+                  value={editForm.displayName}
+                  onChange={(event) =>
+                    setEditForm((currentForm) => ({ ...currentForm, displayName: event.target.value }))
+                  }
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-email">Email</Label>
+                <Input
+                  id="edit-email"
+                  type="email"
+                  value={editForm.email}
+                  onChange={(event) =>
+                    setEditForm((currentForm) => ({ ...currentForm, email: event.target.value }))
+                  }
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Perfil de acesso</Label>
+                <Select
+                  value={editForm.accessProfile}
+                  onValueChange={(value) =>
+                    handleAccessProfileChange(value as ManagedAccessProfile, setEditForm)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accessProfileOptions.map((profile) => (
+                      <SelectItem key={profile.accessProfile} value={profile.accessProfile}>
+                        {profile.shortLabel}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-password">Nova senha</Label>
+                <Input
+                  id="edit-password"
+                  type="password"
+                  value={editForm.password}
+                  onChange={(event) =>
+                    setEditForm((currentForm) => ({ ...currentForm, password: event.target.value }))
+                  }
+                  placeholder="Preencha apenas se desejar redefinir"
+                  minLength={6}
+                />
+              </div>
+            </div>
+
+            {renderPermissionSelector(editForm, editSelectedPermissions, editHasCustomPermissions, setEditForm)}
+
+            <div className="flex items-center justify-between rounded-xl border px-4 py-3">
+              <div>
+                <p className="font-medium">Conta ativa</p>
+                <p className="text-sm text-muted-foreground">
+                  Quando desativado, o usuario fica bloqueado no Firebase Authentication.
+                </p>
+              </div>
+              <Switch
+                checked={editForm.active}
+                onCheckedChange={(checked) =>
+                  setEditForm((currentForm) => ({ ...currentForm, active: checked }))
+                }
+              />
+            </div>
+
+            <Alert className="border-slate-200 bg-slate-50">
+              <Shield className="h-4 w-4" />
+              <AlertDescription className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-medium text-slate-900">{editProfilePreview.label}</p>
+                  {editHasCustomPermissions && (
+                    <Badge className="border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50">
+                      Perfil personalizado
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-sm text-slate-600">{editProfilePreview.description}</p>
+                <p className="text-xs text-slate-500">
+                  Permissoes liberadas: {summarizePermissions(editSelectedPermissions).join(', ')}
+                </p>
+              </AlertDescription>
+            </Alert>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={submitting}>
+                {submitting ? (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                    Salvando...
+                  </>
+                ) : (
+                  'Salvar alteracoes'
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

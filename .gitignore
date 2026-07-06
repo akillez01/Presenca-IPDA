@@ -61,6 +61,10 @@ reuniao-ministerial-firebase-adminsdk-*.json
 .env.admin.*
 .env.migration.*
 
+# Centralized local credentials (single-file secret store)
+credentials.local.json
+credentials.local.*.json
+
 # Sensitive configuration files
 .htaccess
 .htpasswd

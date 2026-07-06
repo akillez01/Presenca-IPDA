@@ -1,59 +1,79 @@
 import {
-    createUserWithEmailAndPassword,
-    onAuthStateChanged,
-    signInWithEmailAndPassword,
-    signOut,
-    User
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  User
 } from 'firebase/auth';
 import { auth } from './firebase';
 
-// Credenciais dos super usuários
-const SUPER_USERS = {
-  'admin@ipda.org.br': 'IPDA@2025Admin',
-  'marciodesk@ipda.app.br': 'Michelin@1'
-};
+const DEFAULT_SUPER_USER_EMAILS = ['admin@ipda.org.br', 'marciodesk@ipda.app.br'];
+const DEFAULT_EDITOR_USER_EMAILS = [
+  'presente@ipda.app.br',
+  'cadastro@ipda.app.br',
+  'registro1@ipda.app.br',
+  'registro2@ipda.app.br',
+  'registro3@ipda.app.br',
+  'registro4@ipda.app.br',
+  'secretaria@ipda.org.br',
+  'auxiliar@ipda.org.br',
+];
 
-// Credenciais dos usuários básicos (acesso limitado)
-const BASIC_USERS = {
-  // Reservado para futuros usuários básicos
-};
+function normalizeEmail(email: string | null | undefined) {
+  return (email || '').trim().toLowerCase();
+}
 
-// Credenciais dos usuários editores (podem cadastrar e editar presenças)
-const EDITOR_USERS = {
-  'presente@ipda.app.br': 'presente@2025',
-  'cadastro@ipda.app.br': 'ipda@2025',
-  'registro1@ipda.app.br': 'registro@2025',
-  'registro2@ipda.app.br': 'registro@2025',
-  'registro3@ipda.app.br': 'registro@2025',
-  'registro4@ipda.app.br': 'registro@2025',
-  'secretaria@ipda.org.br': 'SecretariaIPDA@2025',
-  'auxiliar@ipda.org.br': 'AuxiliarIPDA@2025'
-};
+function parseEmailList(rawValue: string | undefined, fallback: string[]) {
+  const raw = (rawValue || '').trim();
+  if (!raw) {
+    return fallback;
+  }
 
-// Todos os usuários válidos
-const ALL_USERS = { ...SUPER_USERS, ...BASIC_USERS, ...EDITOR_USERS };
+  return raw
+    .split(',')
+    .map((value) => normalizeEmail(value))
+    .filter(Boolean);
+}
+
+const SUPER_USER_EMAILS = new Set(
+  parseEmailList(
+    process.env.NEXT_PUBLIC_SUPER_USER_EMAILS || process.env.SUPER_USER_EMAILS,
+    DEFAULT_SUPER_USER_EMAILS
+  )
+);
+
+const EDITOR_USER_EMAILS = new Set(
+  parseEmailList(
+    process.env.NEXT_PUBLIC_EDITOR_USER_EMAILS || process.env.EDITOR_USER_EMAILS,
+    DEFAULT_EDITOR_USER_EMAILS
+  )
+);
+
+const BASIC_USER_EMAILS = new Set(
+  parseEmailList(process.env.NEXT_PUBLIC_BASIC_USER_EMAILS || process.env.BASIC_USER_EMAILS, [])
+);
 
 // Enum para tipos de usuário
 export enum UserType {
   SUPER_USER = 'SUPER_USER',
   EDITOR_USER = 'EDITOR_USER',
   BASIC_USER = 'BASIC_USER',
+  BAPTISM_USER = 'BAPTISM_USER',
   UNKNOWN = 'UNKNOWN'
 }
 
 // Função para verificar se é super usuário
 export function isSuperUser(email: string): boolean {
-  return email in SUPER_USERS;
+  return SUPER_USER_EMAILS.has(normalizeEmail(email));
 }
 
 // Função para verificar se é usuário básico
 export function isBasicUser(email: string): boolean {
-  return email in BASIC_USERS;
+  return BASIC_USER_EMAILS.has(normalizeEmail(email));
 }
 
 // Função para verificar se é usuário editor
 export function isEditorUser(email: string): boolean {
-  return email in EDITOR_USERS;
+  return EDITOR_USER_EMAILS.has(normalizeEmail(email));
 }
 
 // Função para obter tipo de usuário
@@ -64,19 +84,19 @@ export function getUserType(email: string): UserType {
   return UserType.UNKNOWN;
 }
 
-// Função para verificar se as credenciais são de super usuário
+// Legado: credenciais não são mais comparadas no frontend.
 export function isSuperUserCredentials(email: string, password: string): boolean {
-  return (SUPER_USERS as Record<string, string>)[email] === password;
+  return false;
 }
 
-// Função para verificar se as credenciais são de usuário básico
+// Legado: credenciais não são mais comparadas no frontend.
 export function isBasicUserCredentials(email: string, password: string): boolean {
-  return (BASIC_USERS as Record<string, string>)[email] === password;
+  return false;
 }
 
-// Função para verificar se as credenciais são válidas (qualquer tipo)
+// Legado: credenciais não são mais comparadas no frontend.
 export function isValidUserCredentials(email: string, password: string): boolean {
-  return (ALL_USERS as Record<string, string>)[email] === password;
+  return false;
 }
 
 export interface AuthResult {
@@ -86,7 +106,7 @@ export interface AuthResult {
 }
 
 // Sistema de callbacks para mudança de estado de autenticação
-let authStateCallbacks: ((user: User | null) => void)[] = [];
+const authStateCallbacks: ((user: User | null) => void)[] = [];
 
 // Função para notificar todos os callbacks sobre mudança de estado
 function notifyAuthStateChange(user: User | null) {
@@ -110,51 +130,23 @@ function isFirebaseAvailable(): boolean {
 
 export async function signInAdmin(email: string, password: string): Promise<AuthResult> {
   try {
-    // Usar apenas Firebase Auth - sem fallback local
-    if (isFirebaseAvailable()) {
-      try {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        return {
-          success: true,
-          user: userCredential.user
-        };
-      } catch (firebaseError: any) {
-        // Se usuário não existe no Firebase e é super usuário, tentar criar
-        if ((firebaseError.code === 'auth/user-not-found' ||
-            firebaseError.code === 'auth/invalid-credential' ||
-            firebaseError.code === 'auth/wrong-password') &&
-            isSuperUserCredentials(email, password)) {
-          try {
-            const newUserCredential = await createUserWithEmailAndPassword(auth, email, password);
-            return {
-              success: true,
-              user: newUserCredential.user
-            };
-          } catch (createError: any) {
-            return {
-              success: false,
-              error: 'Erro ao criar usuário no Firebase.'
-            };
-          }
-        } else {
-          // Para usuários não autorizados, retornar erro específico
-          return {
-            success: false,
-            error: 'Credenciais inválidas. Verifique email e senha.'
-          };
-        }
-      }
+    // Usar apenas Firebase Auth - sem fallback local e sem bootstrap automático.
+    if (!isFirebaseAvailable()) {
+      return {
+        success: false,
+        error: 'Firebase não está disponível.'
+      };
     }
 
-    // Se Firebase não está disponível, falhar
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
     return {
-      success: false,
-      error: 'Firebase não está disponível.'
+      success: true,
+      user: userCredential.user
     };
   } catch (error: any) {
     return {
       success: false,
-      error: `Erro geral: ${error.message}`
+      error: 'Credenciais inválidas. Verifique email e senha.'
     };
   }
 }
@@ -174,26 +166,14 @@ export async function signOutAdmin(): Promise<AuthResult> {
 }
 
 export function onAuthStateChange(callback: (user: User | null) => void) {
-  // Adicionar callback à lista
   authStateCallbacks.push(callback);
 
-  // Verificar se Firebase está disponível
   if (isFirebaseAvailable()) {
     try {
       const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
         callback(firebaseUser);
       });
-        
-        // Retornar função de cleanup que remove o callback da lista
-        return () => {
-          const index = authStateCallbacks.indexOf(callback);
-          if (index > -1) {
-            authStateCallbacks.splice(index, 1);
-          }
-          if (unsubscribe) unsubscribe();
-        };
-      
-      // Retornar função de cleanup que remove o callback da lista
+
       return () => {
         const index = authStateCallbacks.indexOf(callback);
         if (index > -1) {
@@ -202,14 +182,12 @@ export function onAuthStateChange(callback: (user: User | null) => void) {
         if (unsubscribe) unsubscribe();
       };
     } catch (error) {
-      // Silent error handling
+      // Silent error handling in production
     }
   }
-  
-  // Chamar callback com null se Firebase não está disponível
+
   setTimeout(() => callback(null), 10);
 
-  // Retornar função de cleanup padrão
   return () => {
     const index = authStateCallbacks.indexOf(callback);
     if (index > -1) {

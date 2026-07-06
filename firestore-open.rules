@@ -16,20 +16,27 @@ service cloud.firestore {
     
     // Regras para coleção de usuários - ABERTA PARA USUÁRIOS AUTENTICADOS
     match /users/{userId} {
-      // Super usuários podem fazer tudo
-      allow read, write: if isSuperUser();
-      
-      // QUALQUER usuário autenticado pode ler e escrever SEU PRÓPRIO documento
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-      
-      // Super usuários podem criar novos usuários
-      allow create: if isSuperUser();
+      // Super usuários podem gerenciar perfis completos
+      allow create, update, delete: if isSuperUser();
+
+      // Usuários autenticados podem ler seu próprio perfil
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      // Usuários autorizados podem consultar perfis
+      allow read: if request.auth != null;
     }
     
     // Regras para coleção de presença (attendance) - ABERTA PARA USUÁRIOS AUTENTICADOS
     match /attendance/{document} {
       // Qualquer usuário autenticado pode ler e escrever presença
       allow read, write: if request.auth != null;
+    }
+
+    // Regras para cadastro mestre de membros (members)
+    match /members/{document} {
+      // Qualquer usuário autenticado pode ler e escrever cadastro
+      allow read, create, update: if request.auth != null;
+      allow delete: if isSuperUser();
     }
     
     // Regras para configurações do sistema

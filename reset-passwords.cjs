@@ -1,11 +1,20 @@
 const admin = require('firebase-admin');
+const {
+  loadCredentials,
+  getFirebaseAdminConfig,
+  getUsersByKeys,
+} = require('./credentials-loader.cjs');
+
+const credentials = loadCredentials();
+const firebaseAdminConfig = getFirebaseAdminConfig(credentials);
 
 // Inicializar Firebase Admin
-const serviceAccount = require('./reuniao-ministerial-firebase-adminsdk-fbsvc-abbe4123aa.json');
+const serviceAccount = require(firebaseAdminConfig.serviceAccountPath);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  projectId: 'reuniao-ministerial'
+  ...(firebaseAdminConfig.projectId ? { projectId: firebaseAdminConfig.projectId } : {}),
+  ...(firebaseAdminConfig.databaseURL ? { databaseURL: firebaseAdminConfig.databaseURL } : {}),
 });
 
 async function resetUserPasswords() {
@@ -15,32 +24,17 @@ async function resetUserPasswords() {
     const auth = admin.auth();
     
     // Lista de usuários com suas novas senhas padronizadas
+    const [presente, cadastro, secretaria, auxiliar, adminUser] = getUsersByKeys(
+      credentials,
+      ['presente', 'cadastro', 'secretaria', 'auxiliar', 'admin']
+    );
+
     const users = [
-      {
-        email: 'presente@ipda.app.br',
-        password: 'presente2025IPDA',
-        role: 'Controle de Presença'
-      },
-      {
-        email: 'cadastro@ipda.app.br',
-        password: 'cadastro2025IPDA',
-        role: 'Cadastro'
-      },
-      {
-        email: 'secretaria@ipda.org.br',
-        password: 'secretaria2025IPDA',
-        role: 'Secretaria'
-      },
-      {
-        email: 'auxiliar@ipda.org.br',
-        password: 'auxiliar2025IPDA',
-        role: 'Auxiliar'
-      },
-      {
-        email: 'admin@ipda.org.br',
-        password: 'IPDA@2025Admin',
-        role: 'Administrador Principal'
-      }
+      { email: presente.email, password: presente.password, role: 'Controle de Presenca' },
+      { email: cadastro.email, password: cadastro.password, role: 'Cadastro' },
+      { email: secretaria.email, password: secretaria.password, role: 'Secretaria' },
+      { email: auxiliar.email, password: auxiliar.password, role: 'Auxiliar' },
+      { email: adminUser.email, password: adminUser.password, role: 'Administrador Principal' },
     ];
     
     console.log(`📋 Redefinindo senhas para ${users.length} usuários...\n`);
@@ -58,7 +52,7 @@ async function resetUserPasswords() {
         
         console.log(`✅ ${userInfo.email} - SENHA REDEFINIDA`);
         console.log(`   Função: ${userInfo.role}`);
-        console.log(`   Nova senha: ${userInfo.password}`);
+        console.log(`   Nova senha: valor ocultado (veja credentials.local.json)`);
         console.log(`   UID: ${user.uid}`);
         console.log('---');
         
@@ -69,7 +63,7 @@ async function resetUserPasswords() {
     
     console.log('\n📝 CREDENCIAIS PARA TESTE:');
     users.forEach(user => {
-      console.log(`${user.email} : ${user.password}`);
+      console.log(`${user.email} : senha definida em credentials.local.json`);
     });
     
   } catch (error) {

@@ -3,7 +3,8 @@
  * Implementa rotinas de backup diário para dados do Firebase
  */
 
-import { collection, getDocs, Timestamp } from 'firebase/firestore';
+import { AuditEventType, AuditSeverity, auditSystem } from '@/lib/audit-system';
+import { collection, doc, getDocs, Timestamp, writeBatch } from 'firebase/firestore';
 import { db } from './firebase';
 
 // Configurações do sistema de backup
@@ -26,6 +27,9 @@ export interface BackupMetadata {
   checksum: string;
   status: 'success' | 'failed' | 'partial';
   error?: string;
+  reason?: string;
+  filePath?: string;
+  storageLocation?: BackupConfig['storageLocation'];
 }
 
 // Resultado do backup
@@ -35,6 +39,49 @@ export interface BackupResult {
   error?: string;
   filePath?: string;
 }
+
+interface BackupCreationOptions {
+  reason?: string;
+  safetyBackupOf?: string;
+  skipCleanup?: boolean;
+}
+
+type BackupDocument = Record<string, unknown> & { id: string };
+
+interface BackupPayload {
+  metadata: {
+    timestamp: string;
+    version: string;
+    source: string;
+    timezone: string;
+    reason?: string;
+    safetyBackupOf?: string;
+  };
+  attendance: BackupDocument[];
+  members: BackupDocument[];
+  users: BackupDocument[];
+  config: BackupDocument[];
+  statistics: {
+    totalRecords: number;
+    totalMembers: number;
+    totalDocuments: number;
+    createdAt: string;
+  };
+}
+
+const LOCAL_STORAGE_PREFIX = 'backup-';
+const BACKUP_METADATA_PREFIX = 'backup-metadata-';
+const BACKUP_DIRECTORY = 'backups';
+const RESTORE_BATCH_SIZE = 400;
+const FIRESTORE_DATE_FIELDS = new Set([
+  'timestamp',
+  'createdAt',
+  'updatedAt',
+  'lastUpdated',
+  'lastPresenceAt',
+  'deletedAt',
+  'restoredAt',
+]);
 
 class BackupSystem {
   private config: BackupConfig;
@@ -54,7 +101,7 @@ class BackupSystem {
   /**
    * Executa backup completo dos dados de presença
    */
-  async createBackup(): Promise<BackupResult> {
+  async createBackup(options: BackupCreationOptions = {}): Promise<BackupResult> {
     if (this.isRunning) {
       return {
         success: false,
@@ -70,22 +117,29 @@ class BackupSystem {
 
       // 1. Buscar todos os dados
       const attendanceData = await this.fetchAllAttendanceData();
+      const membersData = await this.fetchMembersData();
       const usersData = await this.fetchUsersData();
       const configData = await this.fetchSystemConfig();
 
       // 2. Preparar dados para backup
-      const backupData = {
+      const totalDocumentCount = attendanceData.length + membersData.length + usersData.length + configData.length;
+      const backupData: BackupPayload = {
         metadata: {
           timestamp: new Date().toISOString(),
           version: '1.0',
           source: 'firebase-firestore',
-          timezone: 'America/Manaus'
+          timezone: 'America/Manaus',
+          reason: options.reason,
+          safetyBackupOf: options.safetyBackupOf,
         },
         attendance: attendanceData,
+        members: membersData,
         users: usersData,
         config: configData,
         statistics: {
           totalRecords: attendanceData.length,
+          totalMembers: membersData.length,
+          totalDocuments: totalDocumentCount,
           createdAt: new Date().toISOString()
         }
       };
@@ -102,18 +156,40 @@ class BackupSystem {
       const metadata: BackupMetadata = {
         id: backupId,
         timestamp: new Date(),
-        recordCount: attendanceData.length,
+        recordCount: totalDocumentCount,
         fileSize: compressed.length,
         compression: this.config.compression,
         checksum: await this.generateChecksum(compressed),
-        status: 'success'
+        status: filePath.startsWith('download:') ? 'partial' : 'success',
+        reason: options.reason,
+        filePath,
+        storageLocation: this.config.storageLocation,
       };
 
       // 6. Registrar backup
       await this.registerBackup(metadata);
 
       // 7. Limpeza de backups antigos
-      await this.cleanupOldBackups();
+      if (!options.skipCleanup) {
+        await this.cleanupOldBackups();
+      }
+
+      await auditSystem.log({
+        eventType: AuditEventType.BACKUP_CREATED,
+        severity: AuditSeverity.MEDIUM,
+        userId: 'system',
+        action: 'create_backup',
+        resourceType: 'backup',
+        resourceId: backupId,
+        description: `Backup ${backupId} criado com sucesso`,
+        metadata: {
+          recordCount: metadata.recordCount,
+          fileSize: metadata.fileSize,
+          storageLocation: metadata.storageLocation,
+          reason: metadata.reason,
+          status: metadata.status,
+        },
+      });
 
       const duration = Date.now() - startTime;
       const sizeKB = Math.round(compressed.length / 1024);
@@ -140,9 +216,9 @@ class BackupSystem {
   /**
    * Busca todos os dados de presença
    */
-  private async fetchAllAttendanceData(): Promise<any[]> {
+  private async fetchAllAttendanceData(): Promise<BackupDocument[]> {
     const snapshot = await getDocs(collection(db, 'attendance'));
-    const data: any[] = [];
+    const data: BackupDocument[] = [];
 
     snapshot.forEach((doc) => {
       const docData = doc.data();
@@ -163,12 +239,36 @@ class BackupSystem {
   }
 
   /**
+   * Busca todos os dados de cadastro de membros
+   */
+  private async fetchMembersData(): Promise<BackupDocument[]> {
+    const snapshot = await getDocs(collection(db, 'members'));
+    const data: BackupDocument[] = [];
+
+    snapshot.forEach((doc) => {
+      const docData = doc.data();
+      data.push({
+        id: doc.id,
+        ...docData,
+        createdAt: docData.createdAt instanceof Timestamp ?
+          docData.createdAt.toDate().toISOString() : docData.createdAt,
+        updatedAt: docData.updatedAt instanceof Timestamp ?
+          docData.updatedAt.toDate().toISOString() : docData.updatedAt,
+        lastPresenceAt: docData.lastPresenceAt instanceof Timestamp ?
+          docData.lastPresenceAt.toDate().toISOString() : docData.lastPresenceAt,
+      });
+    });
+
+    return data;
+  }
+
+  /**
    * Busca dados de usuários
    */
-  private async fetchUsersData(): Promise<any[]> {
+  private async fetchUsersData(): Promise<BackupDocument[]> {
     try {
       const snapshot = await getDocs(collection(db, 'users'));
-      const data: any[] = [];
+      const data: BackupDocument[] = [];
 
       snapshot.forEach((doc) => {
         data.push({
@@ -187,10 +287,10 @@ class BackupSystem {
   /**
    * Busca configurações do sistema
    */
-  private async fetchSystemConfig(): Promise<any[]> {
+  private async fetchSystemConfig(): Promise<BackupDocument[]> {
     try {
       const snapshot = await getDocs(collection(db, 'system-config'));
-      const data: any[] = [];
+      const data: BackupDocument[] = [];
 
       snapshot.forEach((doc) => {
         data.push({
@@ -219,7 +319,7 @@ class BackupSystem {
   /**
    * Comprime dados do backup
    */
-  private async compressData(data: any): Promise<string> {
+  private async compressData(data: BackupPayload): Promise<string> {
     // Em produção, usar biblioteca como pako ou node:zlib
     // Por enquanto, apenas minifica JSON
     return JSON.stringify(data);
@@ -255,7 +355,7 @@ class BackupSystem {
     let usedSpace = 0;
     
     // Calcular espaço usado
-    for (let key in localStorage) {
+    for (const key in localStorage) {
       if (localStorage.hasOwnProperty(key)) {
         usedSpace += localStorage[key].length + key.length;
       }
@@ -309,9 +409,9 @@ class BackupSystem {
       }
       
       try {
-        localStorage.setItem(`backup-${fileName}`, data);
+        localStorage.setItem(this.getStorageKey(fileName), data);
         console.log(`✅ Backup salvo no localStorage: ${Math.round(data.length / 1024)}KB`);
-        return `localStorage:backup-${fileName}`;
+        return `localStorage:${this.getStorageKey(fileName)}`;
       } catch (error) {
         if (error instanceof DOMException && error.name === 'QuotaExceededError') {
           console.warn('⚠️ Quota do localStorage excedida durante salvamento');
@@ -324,7 +424,7 @@ class BackupSystem {
       const fs = await import('fs').then(m => m.promises);
       const path = await import('path');
       
-      const backupDir = path.join(process.cwd(), 'backups');
+      const backupDir = path.join(process.cwd(), BACKUP_DIRECTORY);
       
       // Criar diretório se não existir
       try {
@@ -375,9 +475,8 @@ class BackupSystem {
    */
   private async registerBackup(metadata: BackupMetadata): Promise<void> {
     try {
-      // Salvar metadados localmente
-      const metadataFile = `backup-metadata-${metadata.id}.json`;
-      await this.saveToLocalStorage(metadataFile, JSON.stringify(metadata, null, 2));
+      const metadataFile = this.getMetadataFileName(metadata.id);
+      await this.saveToLocalStorage(metadataFile, JSON.stringify(this.serializeMetadata(metadata), null, 2));
       
       console.log('📝 Metadados do backup registrados:', metadata.id);
     } catch (error) {
@@ -418,20 +517,17 @@ class BackupSystem {
     if (typeof window === 'undefined') return;
     
     try {
-      const keys = Object.keys(localStorage);
-      const backupKeys = keys.filter(key => key.startsWith('backup-'));
+      const backupIds = this.listStoredLocalBackupIds();
       
-      // Remover metade dos backups mais antigos
-      const keysToRemove = Math.ceil(backupKeys.length / 2);
+      const backupIdsToRemove = Math.ceil(backupIds.length / 2);
       
-      // Ordenar por nome (que inclui timestamp) e remover os mais antigos
-      backupKeys.sort();
+      backupIds.sort();
       
-      for (let i = 0; i < keysToRemove && i < backupKeys.length; i++) {
-        localStorage.removeItem(backupKeys[i]);
+      for (let i = 0; i < backupIdsToRemove && i < backupIds.length; i++) {
+        this.removeLocalBackupById(backupIds[i]);
       }
       
-      console.log(`🧹 Limpeza agressiva: removidos ${keysToRemove} backups adicionais`);
+      console.log(`🧹 Limpeza agressiva: removidos ${backupIdsToRemove} backups adicionais`);
     } catch (error) {
       console.warn('Erro na limpeza agressiva:', error);
     }
@@ -441,20 +537,17 @@ class BackupSystem {
    * Limpa backups antigos do localStorage
    */
   private cleanupLocalStorageBackups(): void {
-    const keys = Object.keys(localStorage);
-    const backupKeys = keys.filter(key => key.startsWith('backup-'));
+    const backupIds = this.listStoredLocalBackupIds();
     
-    // Ordenar por timestamp (assumindo formato consistente)
-    backupKeys.sort().reverse();
+    backupIds.sort().reverse();
     
-    // Manter apenas os mais recentes
-    const keysToRemove = backupKeys.slice(this.config.retention);
+    const idsToRemove = backupIds.slice(this.config.retention);
     
-    keysToRemove.forEach(key => {
-      localStorage.removeItem(key);
+    idsToRemove.forEach(id => {
+      this.removeLocalBackupById(id);
     });
     
-    console.log(`🧹 Removidos ${keysToRemove.length} backups antigos do localStorage`);
+    console.log(`🧹 Removidos ${idsToRemove.length} backups antigos do localStorage`);
   }
 
   /**
@@ -471,31 +564,22 @@ class BackupSystem {
       const fs = await import('fs').then(m => m.promises);
       const path = await import('path');
       
-      const backupDir = path.join(process.cwd(), 'backups');
+      const backupDir = path.join(process.cwd(), BACKUP_DIRECTORY);
       
       const files = await fs.readdir(backupDir);
-      const backupFiles = files.filter(file => file.startsWith('backup-') && file.endsWith('.json'));
+      const backupIds = files
+        .filter(file => this.isBackupDataFileName(file))
+        .map(file => file.replace(/\.json$/, ''))
+        .sort()
+        .reverse();
+
+      const idsToRemove = backupIds.slice(this.config.retention);
       
-      // Obter estatísticas dos arquivos para ordenar por data
-      const fileStats = await Promise.all(
-        backupFiles.map(async (file) => ({
-          name: file,
-          path: path.join(backupDir, file),
-          mtime: (await fs.stat(path.join(backupDir, file))).mtime
-        }))
-      );
-      
-      // Ordenar por data de modificação (mais recente primeiro)
-      fileStats.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
-      
-      // Manter apenas os mais recentes
-      const filesToRemove = fileStats.slice(this.config.retention);
-      
-      for (const file of filesToRemove) {
-        await fs.unlink(file.path);
+      for (const backupId of idsToRemove) {
+        await this.removeFileSystemBackupById(backupId);
       }
       
-      console.log(`🧹 Removidos ${filesToRemove.length} backups antigos do filesystem`);
+      console.log(`🧹 Removidos ${idsToRemove.length} backups antigos do filesystem`);
     } catch (error) {
       console.warn('Erro ao acessar sistema de arquivos:', error);
     }
@@ -505,25 +589,118 @@ class BackupSystem {
    * Lista backups disponíveis
    */
   async listBackups(): Promise<BackupMetadata[]> {
-    // TODO: Implementar listagem de backups
-    return [];
+    const fileNames = await this.listStoredFiles();
+    const metadataFiles = fileNames.filter(fileName => fileName.startsWith(BACKUP_METADATA_PREFIX) && fileName.endsWith('.json'));
+    const parsedMetadata: BackupMetadata[] = [];
+
+    for (const metadataFile of metadataFiles) {
+      const raw = await this.readStoredFile(metadataFile);
+      if (!raw) {
+        continue;
+      }
+
+      try {
+        parsedMetadata.push(this.parseMetadata(raw));
+      } catch (error) {
+        console.warn(`Aviso: metadados de backup inválidos em ${metadataFile}:`, error);
+      }
+    }
+
+    parsedMetadata.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    return parsedMetadata;
   }
 
   /**
    * Restaura dados a partir de um backup
    */
   async restoreFromBackup(backupId: string): Promise<boolean> {
-    // TODO: Implementar restauração de backup
-    console.warn('Funcionalidade de restauração ainda não implementada');
-    return false;
+    const metadata = await this.loadMetadata(backupId);
+    if (!metadata) {
+      throw new Error(`Backup ${backupId} não encontrado.`);
+    }
+
+    const verified = await this.verifyBackup(backupId);
+    if (!verified) {
+      throw new Error(`Backup ${backupId} falhou na verificação de integridade.`);
+    }
+
+    const safetyBackup = await this.createBackup({
+      reason: `Backup de proteção antes da restauração de ${backupId}`,
+      safetyBackupOf: backupId,
+      skipCleanup: true,
+    });
+
+    if (!safetyBackup.success) {
+      throw new Error(`Não foi possível criar backup de proteção antes da restauração: ${safetyBackup.error || 'erro desconhecido'}`);
+    }
+
+    const payload = await this.loadBackupPayload(backupId);
+
+    await this.restoreCollection('attendance', payload.attendance);
+    await this.restoreCollection('members', payload.members);
+    await this.restoreCollection('users', payload.users);
+    await this.restoreCollection('system-config', payload.config);
+
+    await auditSystem.log({
+      eventType: AuditEventType.BACKUP_RESTORED,
+      severity: AuditSeverity.HIGH,
+      userId: 'system',
+      action: 'restore_backup',
+      resourceType: 'backup',
+      resourceId: backupId,
+      description: `Backup ${backupId} restaurado com sucesso`,
+      metadata: {
+        restoredCollections: {
+          attendance: payload.attendance.length,
+          members: payload.members.length,
+          users: payload.users.length,
+          config: payload.config.length,
+        },
+        safetyBackupId: safetyBackup.metadata?.id,
+      },
+    });
+
+    return true;
   }
 
   /**
    * Verifica integridade de um backup
    */
   async verifyBackup(backupId: string): Promise<boolean> {
-    // TODO: Implementar verificação de integridade
-    return true;
+    try {
+      const metadata = await this.loadMetadata(backupId);
+      if (!metadata) {
+        return false;
+      }
+
+      const raw = await this.readStoredFile(this.getBackupFileName(backupId));
+      if (!raw) {
+        return false;
+      }
+
+      const checksum = await this.generateChecksum(raw);
+      if (checksum !== metadata.checksum) {
+        return false;
+      }
+
+      const payload = this.parseBackupPayload(raw);
+      if (payload.metadata.version !== '1.0') {
+        return false;
+      }
+
+      if (payload.statistics.totalRecords !== payload.attendance.length) {
+        return false;
+      }
+
+      if (payload.statistics.totalMembers !== payload.members.length) {
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.warn(`Falha ao verificar backup ${backupId}:`, error);
+      return false;
+    }
   }
 
   /**
@@ -539,14 +716,259 @@ class BackupSystem {
   updateConfig(newConfig: Partial<BackupConfig>): void {
     this.config = { ...this.config, ...newConfig };
   }
+
+  async deleteBackup(backupId: string): Promise<boolean> {
+    try {
+      if (typeof window !== 'undefined') {
+        this.removeLocalBackupById(backupId);
+      } else {
+        await this.removeFileSystemBackupById(backupId);
+      }
+
+      return true;
+    } catch (error) {
+      console.error(`Erro ao excluir backup ${backupId}:`, error);
+      return false;
+    }
+  }
+
+  private getBackupFileName(backupId: string): string {
+    return `${backupId}.json`;
+  }
+
+  private getMetadataFileName(backupId: string): string {
+    return `${BACKUP_METADATA_PREFIX}${backupId}.json`;
+  }
+
+  private getStorageKey(fileName: string): string {
+    return `${LOCAL_STORAGE_PREFIX}${fileName}`;
+  }
+
+  private listStoredLocalBackupIds(): string[] {
+    if (typeof window === 'undefined') {
+      return [];
+    }
+
+    return Object.keys(localStorage)
+      .filter((key) => this.isLocalStorageBackupDataKey(key))
+      .map((key) => key.slice(LOCAL_STORAGE_PREFIX.length).replace(/\.json$/, ''))
+      .sort();
+  }
+
+  private isLocalStorageBackupDataKey(key: string): boolean {
+    if (!key.startsWith(LOCAL_STORAGE_PREFIX)) {
+      return false;
+    }
+
+    const fileName = key.slice(LOCAL_STORAGE_PREFIX.length);
+    return this.isBackupDataFileName(fileName);
+  }
+
+  private isBackupDataFileName(fileName: string): boolean {
+    return /^backup-\d{8}-\d{6}\.json$/.test(fileName);
+  }
+
+  private removeLocalBackupById(backupId: string): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    localStorage.removeItem(this.getStorageKey(this.getBackupFileName(backupId)));
+    localStorage.removeItem(this.getStorageKey(this.getMetadataFileName(backupId)));
+  }
+
+  private async removeFileSystemBackupById(backupId: string): Promise<void> {
+    const fs = await import('fs').then(m => m.promises);
+    const path = await import('path');
+    const backupDir = path.join(process.cwd(), BACKUP_DIRECTORY);
+    const files = [
+      path.join(backupDir, this.getBackupFileName(backupId)),
+      path.join(backupDir, this.getMetadataFileName(backupId)),
+    ];
+
+    await Promise.all(
+      files.map(async (filePath) => {
+        try {
+          await fs.unlink(filePath);
+        } catch (error) {
+          if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') {
+            throw error;
+          }
+        }
+      })
+    );
+  }
+
+  private async listStoredFiles(): Promise<string[]> {
+    if (typeof window !== 'undefined') {
+      return Object.keys(localStorage)
+        .filter((key) => key.startsWith(LOCAL_STORAGE_PREFIX))
+        .map((key) => key.slice(LOCAL_STORAGE_PREFIX.length));
+    }
+
+    try {
+      const fs = await import('fs').then(m => m.promises);
+      const path = await import('path');
+      const backupDir = path.join(process.cwd(), BACKUP_DIRECTORY);
+      return await fs.readdir(backupDir);
+    } catch {
+      return [];
+    }
+  }
+
+  private async readStoredFile(fileName: string): Promise<string | null> {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(this.getStorageKey(fileName));
+    }
+
+    try {
+      const fs = await import('fs').then(m => m.promises);
+      const path = await import('path');
+      const backupDir = path.join(process.cwd(), BACKUP_DIRECTORY);
+      return await fs.readFile(path.join(backupDir, fileName), 'utf8');
+    } catch {
+      return null;
+    }
+  }
+
+  private serializeMetadata(metadata: BackupMetadata): Omit<BackupMetadata, 'timestamp'> & { timestamp: string } {
+    return {
+      ...metadata,
+      timestamp: metadata.timestamp.toISOString(),
+    };
+  }
+
+  private parseMetadata(raw: string): BackupMetadata {
+    const parsed = JSON.parse(raw) as Partial<BackupMetadata> & { timestamp?: string | Date };
+
+    if (!parsed.id || !parsed.timestamp || typeof parsed.recordCount !== 'number' || typeof parsed.fileSize !== 'number' || typeof parsed.checksum !== 'string' || !parsed.status) {
+      throw new Error('Metadados de backup inválidos.');
+    }
+
+    return {
+      ...parsed,
+      timestamp: new Date(parsed.timestamp),
+      compression: Boolean(parsed.compression),
+      status: parsed.status,
+    } as BackupMetadata;
+  }
+
+  private async loadMetadata(backupId: string): Promise<BackupMetadata | null> {
+    const raw = await this.readStoredFile(this.getMetadataFileName(backupId));
+    if (!raw) {
+      return null;
+    }
+
+    return this.parseMetadata(raw);
+  }
+
+  private parseBackupPayload(raw: string): BackupPayload {
+    const parsed = JSON.parse(raw) as Partial<BackupPayload>;
+
+    if (!parsed.metadata || typeof parsed.metadata.timestamp !== 'string' || typeof parsed.metadata.version !== 'string') {
+      throw new Error('Payload de backup inválido: metadados ausentes.');
+    }
+
+    return {
+      metadata: {
+        timestamp: parsed.metadata.timestamp,
+        version: parsed.metadata.version,
+        source: parsed.metadata.source || 'firebase-firestore',
+        timezone: parsed.metadata.timezone || 'America/Manaus',
+        reason: parsed.metadata.reason,
+        safetyBackupOf: parsed.metadata.safetyBackupOf,
+      },
+      attendance: this.normalizeBackupDocuments(parsed.attendance),
+      members: this.normalizeBackupDocuments(parsed.members),
+      users: this.normalizeBackupDocuments(parsed.users),
+      config: this.normalizeBackupDocuments(parsed.config),
+      statistics: {
+        totalRecords: parsed.statistics?.totalRecords ?? 0,
+        totalMembers: parsed.statistics?.totalMembers ?? 0,
+        totalDocuments: parsed.statistics?.totalDocuments ?? 0,
+        createdAt: parsed.statistics?.createdAt || parsed.metadata.timestamp,
+      },
+    };
+  }
+
+  private normalizeBackupDocuments(records: unknown): BackupDocument[] {
+    if (!Array.isArray(records)) {
+      return [];
+    }
+
+    return records.filter((record): record is BackupDocument => {
+      return Boolean(record) && typeof record === 'object' && 'id' in record && typeof (record as BackupDocument).id === 'string';
+    });
+  }
+
+  private async loadBackupPayload(backupId: string): Promise<BackupPayload> {
+    const raw = await this.readStoredFile(this.getBackupFileName(backupId));
+    if (!raw) {
+      throw new Error(`Arquivo do backup ${backupId} não encontrado.`);
+    }
+
+    return this.parseBackupPayload(raw);
+  }
+
+  private async restoreCollection(collectionName: string, records: BackupDocument[]): Promise<void> {
+    for (let index = 0; index < records.length; index += RESTORE_BATCH_SIZE) {
+      const chunk = records.slice(index, index + RESTORE_BATCH_SIZE);
+      const batch = writeBatch(db);
+
+      for (const record of chunk) {
+        const reference = doc(db, collectionName, record.id);
+        batch.set(reference, this.prepareDocumentForRestore(record));
+      }
+
+      await batch.commit();
+    }
+  }
+
+  private prepareDocumentForRestore(record: BackupDocument): Record<string, unknown> {
+    const prepared: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(record)) {
+      if (key === 'id' || value === undefined) {
+        continue;
+      }
+
+      prepared[key] = this.prepareValueForRestore(key, value);
+    }
+
+    return prepared;
+  }
+
+  private prepareValueForRestore(key: string, value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.prepareValueForRestore(key, item));
+    }
+
+    if (value && typeof value === 'object' && !(value instanceof Date)) {
+      const nested: Record<string, unknown> = {};
+      for (const [nestedKey, nestedValue] of Object.entries(value)) {
+        nested[nestedKey] = this.prepareValueForRestore(nestedKey, nestedValue);
+      }
+      return nested;
+    }
+
+    if (typeof value === 'string' && FIRESTORE_DATE_FIELDS.has(key) && this.isIsoDateString(value)) {
+      return new Date(value);
+    }
+
+    return value;
+  }
+
+  private isIsoDateString(value: string): boolean {
+    return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value);
+  }
 }
 
 // Instância singleton do sistema de backup
 export const backupSystem = new BackupSystem();
 
 // Função utilitária para executar backup manual
-export async function createManualBackup(): Promise<BackupResult> {
-  return backupSystem.createBackup();
+export async function createManualBackup(options: BackupCreationOptions = {}): Promise<BackupResult> {
+  return backupSystem.createBackup(options);
 }
 
 // Função para agendar backup automático (a ser implementada com cron job)

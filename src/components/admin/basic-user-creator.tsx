@@ -40,31 +40,31 @@ export function BasicUserCreator({ onUserCreated }: { onUserCreated?: () => void
     secretaria: {
       label: 'Secretaria IPDA',
       emailSuffix: '@ipda.org.br',
-      defaultPassword: 'SecretariaIPDA@2025',
+      defaultPassword: '',
       displayName: 'Secretaria IPDA'
     },
     auxiliar: {
       label: 'Auxiliar IPDA',
       emailSuffix: '@ipda.org.br',
-      defaultPassword: 'AuxiliarIPDA@2025',
+      defaultPassword: '',
       displayName: 'Auxiliar IPDA'
     },
     cadastro: {
       label: 'Cadastro IPDA',
       emailSuffix: '@ipda.app.br',
-      defaultPassword: 'CadastroIPDA@2025',
+      defaultPassword: '',
       displayName: 'Cadastro IPDA'
     },
     presente: {
       label: 'Controle de Presença',
       emailSuffix: '@ipda.app.br',
-      defaultPassword: 'PresenteIPDA@2025',
+      defaultPassword: '',
       displayName: 'Controle de Presença IPDA'
     },
     custom: {
       label: 'Usuário Customizado',
       emailSuffix: '@ipda.org.br',
-      defaultPassword: 'IPDA@2025',
+      defaultPassword: '',
       displayName: 'Usuário IPDA'
     }
   };

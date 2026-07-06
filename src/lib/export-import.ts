@@ -3,7 +3,7 @@
  * Funcionalidades para exportação e importação de dados com múltiplos formatos
  */
 
-import { useAuditLog } from '@/lib/audit-system';
+import { AuditEventType, AuditSeverity, auditSystem } from '@/lib/audit-system';
 import { db } from '@/lib/firebase';
 import {
     addDoc,
@@ -108,11 +108,7 @@ export interface ImportProgress {
 
 // Classe principal do sistema de Export/Import
 export class ExportImportSystem {
-  private auditLog: ReturnType<typeof useAuditLog>;
-
-  constructor(userId: string) {
-    this.auditLog = useAuditLog();
-  }
+  constructor(_userId: string) {}
 
   // Rate limiting simples
   private async checkRateLimit(key: string): Promise<void> {
@@ -128,6 +124,26 @@ export class ExportImportSystem {
     localStorage.setItem(storageKey, now.toString());
   }
 
+  private async logAuditEvent(
+    userId: string,
+    eventType: AuditEventType,
+    collectionName: string,
+    description: string,
+    metadata?: Record<string, any>,
+    severity: AuditSeverity = AuditSeverity.LOW
+  ) {
+    await auditSystem.log({
+      eventType,
+      severity,
+      userId,
+      action: eventType,
+      description,
+      resourceType: 'collection',
+      resourceId: collectionName,
+      metadata,
+    });
+  }
+
   // Exportar dados
   async exportData(
     collectionName: string,
@@ -139,11 +155,11 @@ export class ExportImportSystem {
     
     try {
       // Rate limiting
-      await this.rateLimiter.checkRateLimit(`export_${userId}`, 5, 60000);
+      await this.checkRateLimit(`export_${userId}`);
 
       // Construir query
-      let queryRef = collection(db, collectionName);
-      let constraints: any[] = [];
+      const queryRef = collection(db, collectionName);
+      const constraints: any[] = [];
 
       // Aplicar filtros
       if (options.filters) {
@@ -268,34 +284,35 @@ export class ExportImportSystem {
       };
 
       // Log de auditoria
-      await this.auditLogger.logEvent({
+      await this.logAuditEvent(
         userId,
-        eventType: 'DATA_EXPORT',
-        entityType: 'collection',
-        entityId: collectionName,
-        metadata: {
+        AuditEventType.DATA_EXPORT,
+        collectionName,
+        'Exportacao de dados concluida com sucesso.',
+        {
           recordsExported: documents.length,
           format: options.format,
           filters: options.filters,
-          duration: Date.now() - startTime
+          duration: Date.now() - startTime,
         }
-      } as AuditEvent);
+      );
 
       return result;
 
     } catch (error) {
       console.error('Erro na exportação:', error);
       
-      await this.auditLogger.logEvent({
+      await this.logAuditEvent(
         userId,
-        eventType: 'DATA_EXPORT_FAILED',
-        entityType: 'collection',
-        entityId: collectionName,
-        metadata: {
+        AuditEventType.DATA_EXPORT,
+        collectionName,
+        'Falha ao exportar dados.',
+        {
           error: error instanceof Error ? error.message : 'Erro desconhecido',
-          duration: Date.now() - startTime
-        }
-      } as AuditEvent);
+          duration: Date.now() - startTime,
+        },
+        AuditSeverity.HIGH
+      );
 
       return {
         success: false,
@@ -327,7 +344,7 @@ export class ExportImportSystem {
     
     try {
       // Rate limiting
-      await this.rateLimiter.checkRateLimit(`import_${userId}`, 3, 60000);
+      await this.checkRateLimit(`import_${userId}`);
 
       onProgress?.({
         recordsProcessed: 0,
@@ -361,6 +378,7 @@ export class ExportImportSystem {
       // Processar em batches
       for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
         const batch = writeBatch(db);
+        let batchHasOperations = false;
         const startIndex = batchIndex * options.batchSize;
         const endIndex = Math.min(startIndex + options.batchSize, totalRecords);
         const batchRecords = records.slice(startIndex, endIndex);
@@ -409,6 +427,7 @@ export class ExportImportSystem {
               case 'insert':
                 if (docId) {
                   batch.set(docRef, processedRecord);
+                  batchHasOperations = true;
                 } else {
                   // Para insert sem ID, usamos addDoc fora do batch
                   // Isso é uma limitação do Firestore
@@ -418,6 +437,7 @@ export class ExportImportSystem {
               case 'update':
                 if (docId) {
                   batch.update(docRef, processedRecord);
+                  batchHasOperations = true;
                 } else {
                   errors.push({
                     row: recordIndex + 1,
@@ -430,6 +450,7 @@ export class ExportImportSystem {
                 break;
               case 'upsert':
                 batch.set(docRef, processedRecord, { merge: true });
+                batchHasOperations = true;
                 break;
             }
 
@@ -446,7 +467,7 @@ export class ExportImportSystem {
         }
 
         // Executar batch
-        if (batch._mutations && batch._mutations.length > 0) {
+        if (batchHasOperations) {
           await batch.commit();
         }
 
@@ -496,37 +517,38 @@ export class ExportImportSystem {
       };
 
       // Log de auditoria
-      await this.auditLogger.logEvent({
+      await this.logAuditEvent(
         userId,
-        eventType: 'DATA_IMPORT',
-        entityType: 'collection',
-        entityId: collectionName,
-        metadata: {
+        AuditEventType.DATA_IMPORT,
+        collectionName,
+        'Importacao de dados concluida com sucesso.',
+        {
           recordsImported,
           recordsSkipped,
           recordsWithErrors: errors.length,
           importId,
           fileName: file.name,
-          duration: Date.now() - startTime
+          duration: Date.now() - startTime,
         }
-      } as AuditEvent);
+      );
 
       return result;
 
     } catch (error) {
       console.error('Erro na importação:', error);
       
-      await this.auditLogger.logEvent({
+      await this.logAuditEvent(
         userId,
-        eventType: 'DATA_IMPORT_FAILED',
-        entityType: 'collection',
-        entityId: collectionName,
-        metadata: {
+        AuditEventType.DATA_IMPORT,
+        collectionName,
+        'Falha ao importar dados.',
+        {
           error: error instanceof Error ? error.message : 'Erro desconhecido',
           fileName: file.name,
-          duration: Date.now() - startTime
-        }
-      } as AuditEvent);
+          duration: Date.now() - startTime,
+        },
+        AuditSeverity.HIGH
+      );
 
       return {
         success: false,

@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AuditSeverity, auditSystem } from '@/lib/audit-system';
-import { backupSystem } from '@/lib/backup-system';
+import { backupSystemClient as backupSystem } from '@/lib/backup-client';
 import { rateLimitSystem } from '@/lib/rate-limit-system';
 import {
     Activity,
@@ -189,8 +189,10 @@ export default function SystemMonitoringPanel() {
 
     try {
       setIsLoading(true);
-      // Implementar método de exclusão de backup
-      console.log('Excluindo backup:', backupId);
+      const deleted = await backupSystem.deleteBackup(backupId);
+      if (!deleted) {
+        throw new Error('Não foi possível excluir o backup selecionado.');
+      }
       await loadSystemStatus();
 
       // Log da ação

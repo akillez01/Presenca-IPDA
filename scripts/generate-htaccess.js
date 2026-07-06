@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
 
 const htaccessContent = `# Sistema de Presença IPDA - Configurações Plesk
 # Desenvolvido por AchillesOS
@@ -123,8 +123,8 @@ Options -Indexes
     Deny from all
 </FilesMatch>
 
-# Protect configuration files
-<FilesMatch "\\.(json|md|txt|log)$">
+# Protect developer-only artifacts without blocking Next export route data
+<FilesMatch "\\.(md|log)$">
     <RequireAll>
         Require all denied
     </RequireAll>
@@ -174,6 +174,17 @@ AddDefaultCharset UTF-8
 
 # Performance optimizations
 <IfModule mod_headers.c>
+    # Service worker and manifest must always revalidate to avoid clients stuck on old builds
+    <Files "sw.js">
+        Header set Cache-Control "no-cache, no-store, must-revalidate"
+        Header set Pragma "no-cache"
+        Header set Expires "0"
+    </Files>
+
+    <FilesMatch "^(manifest\\.json|favicon\\.ico)$">
+        Header set Cache-Control "public, max-age=0, must-revalidate"
+    </FilesMatch>
+
     # Preload key resources
     <FilesMatch "\\.(css|js)$">
         Header set Cache-Control "public, max-age=31536000, immutable"

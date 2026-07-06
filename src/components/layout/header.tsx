@@ -1,6 +1,5 @@
 "use client";
 
-import { FirebaseStatus } from "@/components/firebase-status";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,15 +10,20 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
 import { getUserType, UserType } from "@/lib/auth";
 import { HelpCircle, LogOut, Settings, Shield, User, UserCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 export function Header() {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const { openMobile } = useSidebar();
+  const [touchCount, setTouchCount] = useState(0);
+  const DEBUG_TOUCH =
+    typeof window !== "undefined" && process.env.NEXT_PUBLIC_DEBUG_TOUCH === "true";
 
   const handleLogout = async () => {
     const result = await logout();
@@ -36,30 +40,46 @@ export function Header() {
     return email.split('@')[0].replace('.', ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
 
-  const getUserTypeLabel = (email: string, overridenUserType?: UserType) => {
+  const getUserTypeLabel = (email: string, overridenUserType?: UserType | 'ADMIN_USER') => {
     const userType = overridenUserType ?? getUserType(email);
     switch (userType) {
       case UserType.SUPER_USER:
         return { label: 'Super Usuário', color: 'text-green-600' };
+      case 'ADMIN_USER':
+        return { label: 'Administrador', color: 'text-slate-700' };
       case UserType.EDITOR_USER:
         return { label: 'Editor de Presença', color: 'text-purple-600' };
       case UserType.BASIC_USER:
         return { label: 'Usuário Básico', color: 'text-blue-600' };
+      case UserType.BAPTISM_USER:
+        return { label: 'Operador de Batismo', color: 'text-amber-600' };
       default:
         return { label: 'Desconhecido', color: 'text-gray-600' };
     }
   };
-  const claimedUserType = (user as any)?.userType as UserType | undefined;
+  const claimedUserType = (user as any)?.userType as UserType | 'ADMIN_USER' | undefined;
 
 
   return (
     <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background/80 backdrop-blur-sm px-4 md:px-6 print:hidden">
       {/* Botão de menu móvel - sempre visível em mobile */}
-      <SidebarTrigger className="lg:hidden" />
+      {/* No Android (Capacitor) o viewport pode ficar "grande" e esconder o trigger.
+          Mantemos o trigger sempre visível para garantir acesso ao menu lateral. */}
+      <div className="flex items-center gap-2">
+        <SidebarTrigger
+          className="h-10 w-10 mobile-button touch-manipulation"
+          onClick={() => {
+            if (DEBUG_TOUCH) setTouchCount((n) => n + 1);
+          }}
+        />
+        {DEBUG_TOUCH && (
+          <span className="text-[10px] leading-none text-muted-foreground select-none">
+            taps:{touchCount} mobile:{openMobile ? "open" : "closed"}
+          </span>
+        )}
+      </div>
       <div className="flex w-full items-center justify-between">
-        <div className="flex items-center gap-2">
-          <FirebaseStatus />
-        </div>
+        <div />
         
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

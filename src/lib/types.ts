@@ -4,18 +4,26 @@ export type AttendanceRecord = {
   fullName: string;
   cpf: string;
   birthday?: string; // Campo padronizado para aniversário
+  cfoCourse?: string;
   reclassification: string;
   pastorName: string;
   region: string;
   churchPosition: string;
   city: string;
   shift: string;
+  totvs?: string; // Código TOTVS
+  etda?: string; // Código ETDA
   status: string;
   photoUrl?: string | null;
+  phone?: string;
   absentReason?: string; // Motivo da falta/justificativa
   createdBy?: string; // ID do usuário que criou o registro
   createdAt?: Date; // Data de criação
+  updatedAt?: Date;
   lastUpdated?: any; // Timestamp da última atualização de presença (Firestore Timestamp)
+  lastPresenceAt?: Date | null;
+  memberId?: string;
+  sourceCollection?: 'members' | 'attendance' | 'attendance-fallback';
   // Campos de auditoria para controle de concorrência
   lastUpdatedBy?: string; // Email do usuário que fez a última atualização
   updateCount?: number; // Contador de atualizações para controle de concorrência
@@ -28,15 +36,19 @@ export type AttendanceRecord = {
 };
 
 // Sistema de usuários padronizado
-export type UserRole = 'admin' | 'editor' | 'moderator' | 'user';
-export type UserType = 'ADMIN_USER' | 'EDITOR_USER' | 'MODERATOR_USER' | 'STANDARD_USER';
+export type UserRole = 'admin' | 'editor' | 'moderator' | 'user' | 'baptism_user';
+export type UserType = 'ADMIN_USER' | 'EDITOR_USER' | 'MODERATOR_USER' | 'STANDARD_USER' | 'BAPTISM_USER';
 export type Permission = 
   | 'dashboard' 
+  | 'baptism'
+  | 'scanner'
   | 'register' 
   | 'attendance' 
   | 'letters' 
   | 'presencadecadastrados' 
   | 'edit_attendance'
+  | 'admin_users'
+  | 'config'
   | 'user_management'
   | 'reports'
   | 'settings'
@@ -81,6 +93,7 @@ export type SystemConfig = {
   reclassificationOptions: string[];
   regionOptions: string[];
   churchPositionOptions: string[];
+  cursoCFOOptions?: string[];
   shiftOptions: string[];
   statusOptions: string[];
   lastUpdated: Date;

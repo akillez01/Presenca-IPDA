@@ -99,7 +99,7 @@ export default function ManagePositionsPage() {
       const updatedConfig = {
         ...config,
         churchPositionOptions: positions,
-        lastUpdated: new Date().toISOString(),
+        lastUpdated: new Date(),
         updatedBy: 'admin-panel'
       };
 

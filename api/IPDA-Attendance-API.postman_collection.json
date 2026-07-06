@@ -1,0 +1,483 @@
+{
+  "info": {
+    "_postman_id": "ipda-attendance-api",
+    "name": "IPDA Attendance API",
+    "description": "Coleção de endpoints para API de Presença - Igreja de Deus em Adoração",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Autenticação",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@ipda.com.br\",\n  \"senha\": \"senha123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}", "api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Register (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome_completo\": \"Novo Usuário\",\n  \"email\": \"novo@ipda.com.br\",\n  \"senha\": \"senha123\",\n  \"papel\": \"pastor\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/register",
+              "host": ["{{base_url}}", "api", "auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/refresh-token",
+              "host": ["{{base_url}}", "api", "auth", "refresh-token"]
+            }
+          }
+        },
+        {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/me",
+              "host": ["{{base_url}}", "api", "auth", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Presença",
+      "item": [
+        {
+          "name": "Marcar Presença",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"membro_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"status\": \"Presente\",\n  \"data_presenca\": \"2025-01-20\",\n  \"hora_presenca\": \"19:30:00\",\n  \"justificativa\": null\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/presenca/marcar",
+              "host": ["{{base_url}}", "api", "presenca", "marcar"]
+            }
+          }
+        },
+        {
+          "name": "Listar Presenças",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/presenca/listar?data=2025-01-20",
+              "host": ["{{base_url}}", "api", "presenca", "listar"],
+              "query": [
+                {
+                  "key": "data",
+                  "value": "2025-01-20"
+                },
+                {
+                  "key": "status",
+                  "value": "Presente",
+                  "disabled": true
+                },
+                {
+                  "key": "regiao",
+                  "value": "Zona Norte",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Estatísticas de Presença",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/presenca/estatisticas?data_inicio=2025-01-01&data_fim=2025-01-31",
+              "host": ["{{base_url}}", "api", "presenca", "estatisticas"],
+              "query": [
+                {
+                  "key": "data_inicio",
+                  "value": "2025-01-01"
+                },
+                {
+                  "key": "data_fim",
+                  "value": "2025-01-31"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Atualizar Presença",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Justificado\",\n  \"justificativa\": \"Motivo da ausência\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/presenca/:id",
+              "host": ["{{base_url}}", "api", "presenca", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "550e8400-e29b-41d4-a716-446655440000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Deletar Presença",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/presenca/:id",
+              "host": ["{{base_url}}", "api", "presenca", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "550e8400-e29b-41d4-a716-446655440000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Membros",
+      "item": [
+        {
+          "name": "Listar Membros",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/membros?pagina=1&limite=20",
+              "host": ["{{base_url}}", "api", "membros"],
+              "query": [
+                {
+                  "key": "pagina",
+                  "value": "1"
+                },
+                {
+                  "key": "limite",
+                  "value": "20"
+                },
+                {
+                  "key": "regiao",
+                  "value": "Zona Norte",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Criar Membro",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome_completo\": \"João Silva\",\n  \"email\": \"joao@ipda.com.br\",\n  \"cpf\": \"123.456.789-00\",\n  \"telefone\": \"(11) 98765-4321\",\n  \"data_nascimento\": \"1990-01-15\",\n  \"genero\": \"M\",\n  \"endereco\": \"Rua exemplo\",\n  \"numero\": \"123\",\n  \"bairro\": \"Bairro\",\n  \"cidade\": \"São Paulo\",\n  \"estado\": \"SP\",\n  \"cep\": \"01234-567\",\n  \"cargo_igreja\": \"Membro\",\n  \"regiao\": \"Zona Norte\",\n  \"turno\": \"Noite\",\n  \"pastor_id\": null\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/membros",
+              "host": ["{{base_url}}", "api", "membros"]
+            }
+          }
+        },
+        {
+          "name": "Obter Membro",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/membros/:id",
+              "host": ["{{base_url}}", "api", "membros", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "550e8400-e29b-41d4-a716-446655440000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Atualizar Membro",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telefone\": \"(11) 99999-9999\",\n  \"cargo_igreja\": \"Pastor\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/membros/:id",
+              "host": ["{{base_url}}", "api", "membros", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "550e8400-e29b-41d4-a716-446655440000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Deletar Membro",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/membros/:id",
+              "host": ["{{base_url}}", "api", "membros", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "550e8400-e29b-41d4-a716-446655440000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Estatísticas",
+      "item": [
+        {
+          "name": "Resumo do Dia",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/stats/resumo",
+              "host": ["{{base_url}}", "api", "stats", "resumo"],
+              "query": [
+                {
+                  "key": "data",
+                  "value": "2025-01-20",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Estatísticas por Região",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/stats/por-regiao",
+              "host": ["{{base_url}}", "api", "stats", "por-regiao"]
+            }
+          }
+        },
+        {
+          "name": "Estatísticas por Pastor",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/stats/por-pastor",
+              "host": ["{{base_url}}", "api", "stats", "por-pastor"]
+            }
+          }
+        },
+        {
+          "name": "Histórico de Presença",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/stats/historico?dias=30",
+              "host": ["{{base_url}}", "api", "stats", "historico"],
+              "query": [
+                {
+                  "key": "dias",
+                  "value": "30"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Membros sem Presença",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/stats/membros-sem-presenca",
+              "host": ["{{base_url}}", "api", "stats", "membros-sem-presenca"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3001",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

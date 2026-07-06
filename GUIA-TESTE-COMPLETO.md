@@ -18,7 +18,7 @@ O problema parece ser **VISUAL/FRONTEND** - a página não aparece no browser.
 1. Abra o browser e acesse: **http://localhost:9002/login**
 2. Use as credenciais:
    - **Email:** `admin@ipda.org.br`
-   - **Senha:** `admin123!@#`
+   - **Senha:** definida no arquivo local `credentials.local.json`
 3. Clique em "Entrar"
 4. **AGUARDE** ser redirecionado para o dashboard
 

@@ -49,7 +49,7 @@ O problema principal era que o `loading` ficava infinito porque o sistema não c
 ### 1. Fazer Login
 
 1. Acesse: http://localhost:9002/login
-2. Use as credenciais: **admin@ipda.org.br** / **admin123!@#**
+2. Use as credenciais do arquivo local `credentials.local.json` (fora do Git remoto)
 3. Após login bem-sucedido, será redirecionado para dashboard
 
 ### 2. Acessar Presença de Cadastrados

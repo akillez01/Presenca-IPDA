@@ -3,7 +3,6 @@
 import { useAuth } from '@/hooks/use-auth';
 import { isSuperUser } from '@/lib/auth';
 import { RefreshCw } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { Card, CardContent } from '../ui/card';
 import { EmergencyEscape } from './emergency-escape';
@@ -14,8 +13,20 @@ interface SuperUserGuardProps {
 }
 
 export function SuperUserGuard({ children, fallbackUrl = '/' }: SuperUserGuardProps) {
-  const { user, loading, logout } = useAuth();
-  const router = useRouter();
+  const { user, loading } = useAuth();
+
+  const hasAdminAccess = Boolean(
+    user &&
+      (
+        isSuperUser(user.email || '') ||
+        (user as any).role === 'admin' ||
+        (user as any).canManageUsers === true ||
+        (Array.isArray((user as any).permissions) &&
+          ['config', 'admin_users', 'user_management', 'settings'].some((permission) =>
+            (user as any).permissions.includes(permission)
+          ))
+      )
+  );
 
   useEffect(() => {
     // REDIRECIONAMENTO IMEDIATO E MÚLTIPLO para usuários não autorizados
@@ -29,7 +40,7 @@ export function SuperUserGuard({ children, fallbackUrl = '/' }: SuperUserGuardPr
         return;
       }
       
-      if (user && !isSuperUser(user.email || '')) {
+      if (user && !hasAdminAccess) {
         console.log('🚨 Usuário sem permissão - redirecionamento imediato');
         // Múltiplas tentativas de redirecionamento  
         setTimeout(() => window.location.replace(fallbackUrl), 100);
@@ -38,7 +49,7 @@ export function SuperUserGuard({ children, fallbackUrl = '/' }: SuperUserGuardPr
         return;
       }
     }
-  }, [user, loading, router, fallbackUrl]);
+  }, [user, loading, fallbackUrl, hasAdminAccess]);
 
   // Loading state
   if (loading) {
@@ -67,10 +78,10 @@ export function SuperUserGuard({ children, fallbackUrl = '/' }: SuperUserGuardPr
   }
 
   // Not a super user
-  if (!isSuperUser(user.email || '')) {
+  if (!hasAdminAccess) {
     return <EmergencyEscape />;
   }
 
-  // Super user - show content
+  // Admin - show content
   return <>{children}</>;
 }

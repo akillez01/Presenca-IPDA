@@ -244,7 +244,7 @@ export function EmergencyExit({
           <div className="text-center text-xs text-gray-500 space-y-1 pt-4 border-t border-gray-200">
             <p><strong>💡 Dica:</strong> Se todos os botões falharem, feche o navegador e abra novamente</p>
             <p><strong>📞 Suporte:</strong> Entre em contato com o administrador se o problema persistir</p>
-            <p><strong>⚡ Sistema:</strong> IPDA - Controle de Presença v2.0 - Agosto 2025</p>
+            <p><strong>⚡ Sistema:</strong> IPDA - Controle de Presença v1.0.0</p>
           </div>
         </CardContent>
       </Card>

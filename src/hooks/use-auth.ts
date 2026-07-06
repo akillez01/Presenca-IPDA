@@ -14,12 +14,34 @@ interface ExtendedUser extends User {
   permissions?: string[];
 }
 
+function buildExtendedUser(
+  firebaseUser: User,
+  extra: Pick<ExtendedUser, 'role' | 'cargo' | 'userType' | 'permissions'>
+): ExtendedUser {
+  return Object.assign(Object.create(Object.getPrototypeOf(firebaseUser)), firebaseUser, extra);
+}
+
 const DEFAULT_PERMISSIONS: Record<string, string[]> = {
-  [UserType.SUPER_USER]: [
+  ADMIN_USER: [
     'dashboard',
+    'scanner',
     'register',
     'attendance',
     'letters',
+    'baptism',
+    'presencadecadastrados',
+    'edit_attendance',
+    'reports',
+    'admin_users',
+    'config'
+  ],
+  [UserType.SUPER_USER]: [
+    'dashboard',
+    'scanner',
+    'register',
+    'attendance',
+    'letters',
+    'baptism',
     'presencadecadastrados',
     'edit_attendance',
     'reports',
@@ -28,36 +50,61 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   ],
   [UserType.EDITOR_USER]: [
     'dashboard',
+    'scanner',
     'register',
     'attendance',
     'letters',
+    'baptism',
     'presencadecadastrados',
     'edit_attendance',
     'reports'
   ],
   [UserType.BASIC_USER]: [
     'dashboard',
+    'scanner',
     'register',
     'attendance',
     'letters',
+    'baptism',
     'presencadecadastrados'
+  ],
+  [UserType.BAPTISM_USER]: [
+    'dashboard',
+    'baptism'
   ],
 };
 
 function mapUserTypeToRole(userType?: string) {
   switch (userType) {
+    case 'ADMIN_USER':
+      return 'admin';
     case UserType.SUPER_USER:
       return 'admin';
     case UserType.EDITOR_USER:
       return 'editor';
     case UserType.BASIC_USER:
       return 'basic_user';
+    case UserType.BAPTISM_USER:
+      return 'baptism_user';
     default:
       return 'basic_user';
   }
 }
 
-function resolvePermissions(userType?: string, explicitPermissions?: unknown) {
+function isAdminIdentity(userType?: string, role?: string) {
+  return (
+    userType === 'ADMIN_USER' ||
+    userType === UserType.SUPER_USER ||
+    role === 'admin' ||
+    role === 'super'
+  );
+}
+
+function resolvePermissions(userType?: string, explicitPermissions?: unknown, role?: string) {
+  if (isAdminIdentity(userType, role)) {
+    return [...DEFAULT_PERMISSIONS.ADMIN_USER];
+  }
+
   if (Array.isArray(explicitPermissions) && explicitPermissions.every(item => typeof item === 'string')) {
     return explicitPermissions as string[];
   }
@@ -112,33 +159,39 @@ export function useAuth() {
 
               const resolvedUserType = docUserType || claimUserType || getUserType(firebaseUser.email || '');
               const resolvedRole = docRole || claimRole || mapUserTypeToRole(resolvedUserType);
-              const resolvedPermissions = resolvePermissions(resolvedUserType, docPermissions || claimPermissions);
+              const resolvedPermissions = resolvePermissions(
+                resolvedUserType,
+                docPermissions || claimPermissions,
+                resolvedRole
+              );
 
               if (claimUserType && docUserType && claimUserType !== docUserType) {
                 if (DEBUG) console.log(`⚠️ Inconsistência de tipo: claims=${claimUserType} Firestore=${docUserType}. Preferindo Firestore.`);
               }
 
-              extendedUser = {
-                ...firebaseUser,
+              extendedUser = buildExtendedUser(firebaseUser, {
                 role: resolvedRole,
                 cargo: resolvedUserType,
                 userType: resolvedUserType,
-                permissions: resolvedPermissions
-              } as ExtendedUser;
+                permissions: resolvedPermissions,
+              });
               if (DEBUG) console.log(`✅ Usuário com perfil Firestore:`, extendedUser.email, `role: ${resolvedRole}`, `userType: ${resolvedUserType}`);
             } else {
               if (DEBUG) console.log(`⚠️ Documento não encontrado para: ${firebaseUser.uid}`);
               const fallbackUserType = claimUserType || getUserType(firebaseUser.email || '');
               const fallbackRole = claimRole || mapUserTypeToRole(fallbackUserType);
-              const fallbackPermissions = resolvePermissions(fallbackUserType, claimPermissions);
+              const fallbackPermissions = resolvePermissions(
+                fallbackUserType,
+                claimPermissions,
+                fallbackRole
+              );
 
-              extendedUser = {
-                ...firebaseUser,
+              extendedUser = buildExtendedUser(firebaseUser, {
                 role: fallbackRole,
                 cargo: fallbackUserType,
                 userType: fallbackUserType,
-                permissions: fallbackPermissions
-              } as ExtendedUser;
+                permissions: fallbackPermissions,
+              });
               if (DEBUG) console.log(`✅ Usuário sem perfil Firestore (padrão):`, extendedUser.email, fallbackRole);
             }
             
@@ -152,15 +205,18 @@ export function useAuth() {
             // Fallback robusto para definição básica
             const fallbackUserType = claimUserType || getUserType(firebaseUser.email || '');
             const fallbackRole = claimRole || mapUserTypeToRole(fallbackUserType);
-            const fallbackPermissions = resolvePermissions(fallbackUserType, claimPermissions);
+            const fallbackPermissions = resolvePermissions(
+              fallbackUserType,
+              claimPermissions,
+              fallbackRole
+            );
 
-            const extendedUser = {
-              ...firebaseUser,
+            const extendedUser = buildExtendedUser(firebaseUser, {
               role: fallbackRole,
               cargo: fallbackUserType,
               userType: fallbackUserType,
-              permissions: fallbackPermissions
-            } as ExtendedUser;
+              permissions: fallbackPermissions,
+            });
             
             if (DEBUG) console.log(`🔄 Fallback aplicado para ${firebaseUser.email}: role=${fallbackRole}, userType=${fallbackUserType}`);
             

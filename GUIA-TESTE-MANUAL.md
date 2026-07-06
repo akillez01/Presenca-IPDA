@@ -19,7 +19,7 @@
 1. Clique em "Entrar" ou vá direto para: `http://localhost:9002/login`
 2. **Credenciais para usar:**
    - Email: `admin@ipda.org.br`
-   - Senha: `IPDA@2025Admin`
+   - Senha: definida no arquivo local `credentials.local.json`
 3. Clique em "Entrar"
 
 ### 2.3 Testar acesso à aba de presença
