@@ -79,6 +79,18 @@ export const ROUTE_PERMISSIONS: RoutePermission[] = [
     allowedPermissions: ['baptism']
   },
   {
+    path: '/admin/sede-estadual',
+    allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
+    allowedRoles: ['basic_user', 'user', 'editor', 'admin', 'super'],
+    allowedPermissions: ['sedeEstadual']
+  },
+  {
+    path: '/admin/cadastros-especiais',
+    allowedUserTypes: [UserType.BASIC_USER, UserType.BAPTISM_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
+    allowedRoles: ['basic_user', 'baptism_user', 'user', 'editor', 'admin', 'super'],
+    allowedPermissions: ['sedeEstadual', 'baptism']
+  },
+  {
     path: '/scanner',
     allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
     allowedRoles: ['basic_user', 'user', 'editor', 'admin', 'super'],
@@ -121,7 +133,15 @@ interface RouteGuardProps {
   currentPath: string;
 }
 
-export function RouteGuard({ children, currentPath }: RouteGuardProps) {
+// O build do Plesk usa trailingSlash: true, então em produção o pathname chega
+// com barra final (ex.: "/batismo/"); em dev/local chega sem barra.
+function normalizePath(path: string) {
+  if (path.length > 1 && path.endsWith('/')) return path.slice(0, -1);
+  return path;
+}
+
+export function RouteGuard({ children, currentPath: rawCurrentPath }: RouteGuardProps) {
+  const currentPath = normalizePath(rawCurrentPath);
   const { user, loading } = useAuth();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);

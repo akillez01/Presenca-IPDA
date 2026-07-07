@@ -10,6 +10,17 @@ import { useEffect, useState } from 'react';
 
 const DEBUG = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_DEBUG === 'true';
 
+// Rotas públicas: acessíveis sem login, sem o menu/sidebar interno do sistema.
+// Compartilhadas diretamente (ex.: link de formulário de autocadastro).
+const PUBLIC_PATHS = ['/sede-estadual'];
+
+// O build do Plesk usa trailingSlash: true, então em produção o pathname vem
+// como "/sede-estadual/" (com barra final); em dev/local vem sem barra.
+function normalizePath(path: string) {
+  if (path.length > 1 && path.endsWith('/')) return path.slice(0, -1);
+  return path;
+}
+
 export function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
@@ -46,6 +57,11 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
 
   // Evita mismatch de hidratação: só renderiza após montar no cliente
   if (!mounted) return null;
+
+  // Páginas públicas ficam fora do shell autenticado (sem sidebar/header/AuthGuard)
+  if (pathname && PUBLIC_PATHS.includes(normalizePath(pathname))) {
+    return <>{children}</>;
+  }
 
   return (
     // Deixar aberto por padrão melhora a UX e evita percepção de "sumiu o menu"

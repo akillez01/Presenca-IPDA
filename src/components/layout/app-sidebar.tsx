@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Church, LayoutDashboard, QrCode, Settings, UserPlus, Users } from "lucide-react";
+import { BarChart3, Church, Landmark, LayoutDashboard, QrCode, Settings, UserPlus, Users } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -33,7 +33,8 @@ interface MenuItem {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  permission: NavigationPermission;
+  // Aceita uma permissão única ou uma lista (item aparece se o usuário tiver qualquer uma delas)
+  permission: NavigationPermission | NavigationPermission[];
   inDevelopment?: boolean;
 }
 
@@ -43,7 +44,7 @@ const navigationMenuItems: MenuItem[] = [
   { href: "/reports", label: "Relatórios", icon: BarChart3, permission: "reports" },
   { href: "/scanner", label: "Scanner QR Code", icon: QrCode, permission: "scanner" },
   { href: "/register", label: "Cadastrar Membros", icon: UserPlus, permission: "register" },
-  { href: "/batismo", label: "Batismo", icon: Church, permission: "baptism" },
+  { href: "/admin/cadastros-especiais", label: "Sede Estadual", icon: Landmark, permission: ["sedeEstadual", "baptism"] },
   { href: "/config", label: "Configurações", icon: Settings, permission: "config", inDevelopment: true },
 ];
 
@@ -188,8 +189,10 @@ export function AppSidebar() {
     ? getAccessProfileConfig('admin').permissions
     : navigationPermissions;
 
-  const menuItems =
-    navigationMenuItems.filter((item) => effectivePermissions.includes(item.permission));
+  const menuItems = navigationMenuItems.filter((item) => {
+    const requiredPermissions = Array.isArray(item.permission) ? item.permission : [item.permission];
+    return requiredPermissions.some((permission) => effectivePermissions.includes(permission));
+  });
 
   if (DEBUG_SIDEBAR) {
     console.log("🗂️ AppSidebar: Renderizando sidebar", {

@@ -6,7 +6,7 @@ export type ManagedAccessProfile = 'admin' | 'editor' | 'basic' | 'baptism';
 export type ManagedUserType = UserType | 'ADMIN_USER';
 export type NavigationPermission = Extract<
   Permission,
-  'dashboard' | 'presencadecadastrados' | 'reports' | 'scanner' | 'register' | 'baptism' | 'letters' | 'config' | 'admin_users'
+  'dashboard' | 'presencadecadastrados' | 'reports' | 'scanner' | 'register' | 'baptism' | 'sedeEstadual' | 'letters' | 'config' | 'admin_users'
 >;
 
 export interface AccessProfileConfig {
@@ -62,6 +62,11 @@ export const NAVIGATION_PERMISSION_OPTIONS: PermissionOption[] = [
     description: 'Dashboard e registros específicos de batismo.',
   },
   {
+    permission: 'sedeEstadual',
+    label: 'Sede Estadual',
+    description: 'Cadastro de membros da Sede Estadual.',
+  },
+  {
     permission: 'letters',
     label: 'Cartas',
     description: 'Rotinas de carta de recomendação e documentos correlatos.',
@@ -93,6 +98,7 @@ const ACCESS_PROFILE_CONFIGS: Record<ManagedAccessProfile, AccessProfileConfig> 
       'scanner',
       'register',
       'baptism',
+      'sedeEstadual',
       'letters',
       'config',
       'admin_users',
@@ -110,7 +116,7 @@ const ACCESS_PROFILE_CONFIGS: Record<ManagedAccessProfile, AccessProfileConfig> 
     description: 'Pode registrar, editar presenças e acessar relatórios operacionais.',
     userType: UserType.EDITOR_USER,
     role: 'editor',
-    permissions: ['dashboard', 'presencadecadastrados', 'reports', 'scanner', 'register', 'baptism', 'letters'],
+    permissions: ['dashboard', 'presencadecadastrados', 'reports', 'scanner', 'register', 'baptism', 'sedeEstadual', 'letters'],
     canEditAttendance: true,
     canRegister: true,
     canViewAttendance: true,
@@ -124,7 +130,7 @@ const ACCESS_PROFILE_CONFIGS: Record<ManagedAccessProfile, AccessProfileConfig> 
     description: 'Pode registrar cadastros, consultar presença e emitir cartas.',
     userType: UserType.BASIC_USER,
     role: 'basic_user',
-    permissions: ['dashboard', 'presencadecadastrados', 'scanner', 'register', 'baptism', 'letters'],
+    permissions: ['dashboard', 'presencadecadastrados', 'scanner', 'register', 'baptism', 'sedeEstadual', 'letters'],
     canEditAttendance: false,
     canRegister: true,
     canViewAttendance: true,

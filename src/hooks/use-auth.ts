@@ -29,6 +29,7 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
     'attendance',
     'letters',
     'baptism',
+    'sedeEstadual',
     'presencadecadastrados',
     'edit_attendance',
     'reports',
@@ -42,6 +43,7 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
     'attendance',
     'letters',
     'baptism',
+    'sedeEstadual',
     'presencadecadastrados',
     'edit_attendance',
     'reports',
@@ -55,6 +57,7 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
     'attendance',
     'letters',
     'baptism',
+    'sedeEstadual',
     'presencadecadastrados',
     'edit_attendance',
     'reports'
@@ -66,6 +69,7 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
     'attendance',
     'letters',
     'baptism',
+    'sedeEstadual',
     'presencadecadastrados'
   ],
   [UserType.BAPTISM_USER]: [

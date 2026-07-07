@@ -38,9 +38,10 @@ export type AttendanceRecord = {
 // Sistema de usuários padronizado
 export type UserRole = 'admin' | 'editor' | 'moderator' | 'user' | 'baptism_user';
 export type UserType = 'ADMIN_USER' | 'EDITOR_USER' | 'MODERATOR_USER' | 'STANDARD_USER' | 'BAPTISM_USER';
-export type Permission = 
-  | 'dashboard' 
+export type Permission =
+  | 'dashboard'
   | 'baptism'
+  | 'sedeEstadual'
   | 'scanner'
   | 'register' 
   | 'attendance' 

@@ -3,6 +3,16 @@ rules_version = '2';
 // Firebase Storage Security Rules
 service firebase.storage {
   match /b/{bucket}/o {
+    // E-mails da equipe autorizada a consultar/gerenciar arquivos sensíveis
+    // (mesma lista usada nas regras do Firestore de produção)
+    function isAuthorizedStaff() {
+      return request.auth != null && request.auth.token.email in [
+        'admin@ipda.org.br', 'marciodesk@ipda.app.br',
+        'presente@ipda.app.br', 'secretaria@ipda.org.br', 'auxiliar@ipda.org.br', 'cadastro@ipda.app.br',
+        'registro1@ipda.app.br', 'registro2@ipda.app.br', 'registro3@ipda.app.br', 'registro4@ipda.app.br'
+      ];
+    }
+
     // Regra para fotos de presença - permite upload/leitura/exclusão autenticada
     match /attendance-photos/{fileName} {
       // Permite leitura para usuários autenticados
@@ -29,6 +39,19 @@ service firebase.storage {
       allow delete: if request.auth != null;
     }
     
+    // Regra para arquivos da Sede Estadual (foto 3x4)
+    match /sede-estadual-files/{recordId}/{allPaths=**} {
+      // Leitura liberada para qualquer sessão autenticada (inclui anônima): o próprio formulário público
+      // precisa chamar getDownloadURL() logo após o upload. Caminho tem UUID aleatório e não é listável
+      // sem permissão explícita de "list" — mesmo nível de exposição já aceito em `batismo-files`.
+      allow read: if request.auth != null;
+      // Envio liberado para o formulário público (inclui sessão anônima)
+      allow create, update: if request.auth != null
+                            && request.resource.size < 10 * 1024 * 1024
+                            && request.resource.contentType.matches('image/.*');
+      allow delete: if isAuthorizedStaff();
+    }
+
     // Regra padrão - bloqueia tudo que não corresponder às regras acima
     match /{allPaths=**} {
       allow read, write: if false;
