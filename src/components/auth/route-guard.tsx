@@ -80,8 +80,8 @@ export const ROUTE_PERMISSIONS: RoutePermission[] = [
   },
   {
     path: '/admin/sede-estadual',
-    allowedUserTypes: [UserType.BASIC_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
-    allowedRoles: ['basic_user', 'user', 'editor', 'admin', 'super'],
+    allowedUserTypes: [UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
+    allowedRoles: ['editor', 'admin', 'super'],
     allowedPermissions: ['sedeEstadual']
   },
   {

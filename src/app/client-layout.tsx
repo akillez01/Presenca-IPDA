@@ -11,11 +11,10 @@ import { useEffect, useState } from 'react';
 const DEBUG = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_DEBUG === 'true';
 
 // Rotas públicas: acessíveis sem login, sem o menu/sidebar interno do sistema.
-// Compartilhadas diretamente (ex.: link de formulário de autocadastro).
-const PUBLIC_PATHS = ['/sede-estadual'];
+const PUBLIC_PATHS: string[] = [];
 
 // O build do Plesk usa trailingSlash: true, então em produção o pathname vem
-// como "/sede-estadual/" (com barra final); em dev/local vem sem barra.
+// com barra final (ex.: "/login/"); em dev/local vem sem barra.
 function normalizePath(path: string) {
   if (path.length > 1 && path.endsWith('/')) return path.slice(0, -1);
   return path;

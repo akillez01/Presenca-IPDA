@@ -40,13 +40,10 @@ service firebase.storage {
     }
     
     // Regra para arquivos da Sede Estadual (foto 3x4)
+    // Cadastro é feito só pelo painel administrativo, por isso todo acesso exige equipe autorizada.
     match /sede-estadual-files/{recordId}/{allPaths=**} {
-      // Leitura liberada para qualquer sessão autenticada (inclui anônima): o próprio formulário público
-      // precisa chamar getDownloadURL() logo após o upload. Caminho tem UUID aleatório e não é listável
-      // sem permissão explícita de "list" — mesmo nível de exposição já aceito em `batismo-files`.
-      allow read: if request.auth != null;
-      // Envio liberado para o formulário público (inclui sessão anônima)
-      allow create, update: if request.auth != null
+      allow read: if isAuthorizedStaff();
+      allow create, update: if isAuthorizedStaff()
                             && request.resource.size < 10 * 1024 * 1024
                             && request.resource.contentType.matches('image/.*');
       allow delete: if isAuthorizedStaff();

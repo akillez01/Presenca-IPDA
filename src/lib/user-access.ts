@@ -130,7 +130,7 @@ const ACCESS_PROFILE_CONFIGS: Record<ManagedAccessProfile, AccessProfileConfig> 
     description: 'Pode registrar cadastros, consultar presença e emitir cartas.',
     userType: UserType.BASIC_USER,
     role: 'basic_user',
-    permissions: ['dashboard', 'presencadecadastrados', 'scanner', 'register', 'baptism', 'sedeEstadual', 'letters'],
+    permissions: ['dashboard', 'presencadecadastrados', 'scanner', 'register', 'baptism', 'letters'],
     canEditAttendance: false,
     canRegister: true,
     canViewAttendance: true,

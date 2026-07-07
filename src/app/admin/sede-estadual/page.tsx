@@ -699,7 +699,7 @@ export default function SedeEstadualPage() {
     }
     video.srcObject = cameraStream;
     const playPromise = video.play();
-    if (playPromise) playPromise.catch(() => {});
+    if (playPromise) playPromise.catch(() => { });
   }, [cameraStream]);
 
   function updateField<K extends keyof SedeEstadualFormData>(field: K, value: SedeEstadualFormData[K]) {
@@ -923,18 +923,13 @@ export default function SedeEstadualPage() {
             <div>
               <h1 className="text-2xl font-bold">Sede Estadual</h1>
               <p className="text-sm text-muted-foreground">
-                Gestão dos cadastros enviados pelo formulário público de membros
+                Gestão dos cadastros de membros da Sede Estadual
               </p>
             </div>
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" asChild>
-            <Link href="/sede-estadual" target="_blank" rel="noopener noreferrer">
-              <Landmark className="mr-2 h-4 w-4" /> Abrir formulário público
-            </Link>
-          </Button>
           <Button onClick={showForm ? closeForm : openNewForm}>
             {showForm ? (
               <>
@@ -1119,7 +1114,7 @@ export default function SedeEstadualPage() {
                   <Input value={form.birthplaceCity} onChange={(e) => updateField("birthplaceCity", e.target.value)} />
                 </div>
                 <div>
-                  <Label>Est</Label>
+                  <Label>Estado</Label>
                   <Input
                     className={getInputClass("birthplaceState")}
                     maxLength={2}

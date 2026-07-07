@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Church, ExternalLink, Landmark } from 'lucide-react';
+import { ArrowLeft, Church, Landmark } from 'lucide-react';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -30,7 +30,7 @@ export default function CadastrosEspeciaisPage() {
               <Landmark className="h-5 w-5 text-primary" /> Sede Estadual
             </CardTitle>
             <CardDescription>
-              Gerencie os cadastros enviados pelo formulário público de membros da Sede Estadual.
+              Gerencie os cadastros de membros da Sede Estadual.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -59,14 +59,6 @@ export default function CadastrosEspeciaisPage() {
             </Button>
           </CardContent>
         </Card>
-      </div>
-
-      <div className="mt-6">
-        <Button variant="outline" asChild>
-          <Link href="/sede-estadual" target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="mr-2 h-4 w-4" /> Abrir formulário público da Sede Estadual
-          </Link>
-        </Button>
       </div>
     </div>
   );
