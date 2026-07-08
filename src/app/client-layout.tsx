@@ -65,7 +65,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   return (
     // Deixar aberto por padrão melhora a UX e evita percepção de "sumiu o menu"
     <SidebarProvider defaultOpen={true} suppressHydrationWarning>
-      <div className="flex min-h-screen" suppressHydrationWarning>
+      <div className="flex min-h-screen w-full" suppressHydrationWarning>
         <AppSidebar />
         <div className="flex-1 min-w-0">
           <Header />
