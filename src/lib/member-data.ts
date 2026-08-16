@@ -342,7 +342,7 @@ export async function getAttendanceByCpfForSession(
   return matchingRecord ?? null;
 }
 
-const DIRECTORY_PAGE_SIZE = 500;
+const DIRECTORY_PAGE_SIZE = 2000;
 // Orçamento de tempo por coleção: evita travar a leitura do diretório indefinidamente
 // caso a coleção cresça muito ou a rede esteja lenta — devolve o que já foi lido.
 const DIRECTORY_FETCH_BUDGET_MS = 20000;

@@ -18,7 +18,7 @@ import {
     type QueryDocumentSnapshot
 } from 'firebase/firestore';
 
-const ATTENDANCE_PAGE_SIZE = 500;
+const ATTENDANCE_PAGE_SIZE = 2000;
 // Orçamento de tempo: em vez de deixar a tela travada em "Carregando dados...",
 // devolve o que já foi lido até aqui assim que o orçamento estoura.
 const ATTENDANCE_FETCH_BUDGET_MS = 25000;
