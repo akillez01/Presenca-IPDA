@@ -1,13 +1,19 @@
 import {
   collection,
   doc,
+  documentId,
   getDoc,
   getDocs,
+  limit,
+  orderBy,
   query,
   runTransaction,
   setDoc,
+  startAfter,
   Timestamp,
   where,
+  type DocumentData,
+  type QueryDocumentSnapshot,
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
@@ -336,6 +342,42 @@ export async function getAttendanceByCpfForSession(
   return matchingRecord ?? null;
 }
 
+const DIRECTORY_PAGE_SIZE = 500;
+// Orçamento de tempo por coleção: evita travar a leitura do diretório indefinidamente
+// caso a coleção cresça muito ou a rede esteja lenta — devolve o que já foi lido.
+const DIRECTORY_FETCH_BUDGET_MS = 20000;
+
+// Lê uma coleção inteira em páginas (em vez de um getDocs sem limite),
+// respeitando um orçamento de tempo por chamada.
+async function getAllDocsPaginated(collectionName: string) {
+  const startedAt = Date.now();
+  const collectionRef = collection(db, collectionName);
+  const docs: QueryDocumentSnapshot<DocumentData>[] = [];
+  let cursor: QueryDocumentSnapshot<DocumentData> | undefined;
+
+  while (true) {
+    const pageQuery = cursor
+      ? query(collectionRef, orderBy(documentId()), startAfter(cursor), limit(DIRECTORY_PAGE_SIZE))
+      : query(collectionRef, orderBy(documentId()), limit(DIRECTORY_PAGE_SIZE));
+
+    const snapshot = await getDocs(pageQuery);
+    docs.push(...snapshot.docs);
+
+    if (snapshot.size < DIRECTORY_PAGE_SIZE) {
+      break;
+    }
+
+    if (Date.now() - startedAt > DIRECTORY_FETCH_BUDGET_MS) {
+      console.warn(`⏱️ Orçamento de tempo excedido buscando "${collectionName}" — devolvendo ${docs.length} documentos parciais.`);
+      break;
+    }
+
+    cursor = snapshot.docs[snapshot.docs.length - 1];
+  }
+
+  return docs;
+}
+
 // Cache de 5 minutos — reduz leituras duplicadas do Firestore em múltiplas chamadas
 let _directoryCache: { data: AttendanceRecord[]; expiresAt: number } | null = null;
 const DIRECTORY_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -349,10 +391,10 @@ export async function getMemberDirectoryRecords(): Promise<AttendanceRecord[]> {
     return _directoryCache.data;
   }
 
-  const membersSnap = await getDocs(collection(db, "members"));
+  const membersDocs = await getAllDocsPaginated("members");
   const directory = new Map<string, AttendanceRecord>();
 
-  membersSnap.forEach((snap) => {
+  membersDocs.forEach((snap) => {
     const record = toAttendanceLikeRecord(snap.id, snap.data() as FirestoreLikeRecord, "members");
     if (record.cpf) {
       directory.set(record.cpf, record);
@@ -361,8 +403,8 @@ export async function getMemberDirectoryRecords(): Promise<AttendanceRecord[]> {
 
   // Só consulta attendance para membros que não têm perfil em members (fallback legado)
   if (directory.size === 0) {
-    const attendanceSnap = await getDocs(collection(db, "attendance"));
-    attendanceSnap.forEach((snap) => {
+    const attendanceDocs = await getAllDocsPaginated("attendance");
+    attendanceDocs.forEach((snap) => {
       const record = toAttendanceLikeRecord(snap.id, snap.data() as FirestoreLikeRecord, "attendance-fallback");
       if (!record.cpf) return;
       const existing = directory.get(record.cpf);

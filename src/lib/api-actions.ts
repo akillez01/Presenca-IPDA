@@ -6,38 +6,73 @@ import {
     collection,
     deleteDoc,
     doc,
+    documentId,
     getDocs,
+    limit,
+    orderBy,
+    query,
     serverTimestamp,
-    updateDoc
+    startAfter,
+    updateDoc,
+    type DocumentData,
+    type QueryDocumentSnapshot
 } from 'firebase/firestore';
 
-// Função para buscar todos os registros de presença
+const ATTENDANCE_PAGE_SIZE = 500;
+// Orçamento de tempo: em vez de deixar a tela travada em "Carregando dados...",
+// devolve o que já foi lido até aqui assim que o orçamento estoura.
+const ATTENDANCE_FETCH_BUDGET_MS = 25000;
+
+// Função para buscar todos os registros de presença.
+// Lê em páginas (em vez de um único getDocs sem limite) para não devolver
+// um payload gigante de uma vez e para poder cortar a busca com segurança
+// caso a coleção esteja muito grande ou a rede esteja lenta.
 export async function getAttendanceRecords(): Promise<AttendanceRecord[]> {
+  const startedAt = Date.now();
   try {
     console.log('🔥 Iniciando busca no Firebase...');
-    
+
     const attendanceCollection = collection(db, 'attendance');
-    console.log('📂 Coleção attendance obtida');
-
-    const snapshot = await getDocs(attendanceCollection);
-    console.log(`📊 Snapshot obtido: ${snapshot.size} documentos`);
-    
     const records: AttendanceRecord[] = [];
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      const timestamp = data.timestamp?.toDate ? data.timestamp.toDate() : data.timestamp;
-      const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt;
+    let cursor: QueryDocumentSnapshot<DocumentData> | undefined;
+    let page = 0;
 
-      records.push({
-        id: doc.id,
-        ...data,
-        // Garante que sempre haja uma data confiável para filtros
-        timestamp: timestamp || createdAt || new Date(),
-        createdAt: createdAt || timestamp || new Date(),
-        lastUpdated: data.lastUpdated?.toDate ? data.lastUpdated.toDate() : data.lastUpdated,
-      } as AttendanceRecord);
-    });
-    
+    while (true) {
+      const pageQuery = cursor
+        ? query(attendanceCollection, orderBy(documentId()), startAfter(cursor), limit(ATTENDANCE_PAGE_SIZE))
+        : query(attendanceCollection, orderBy(documentId()), limit(ATTENDANCE_PAGE_SIZE));
+
+      const snapshot = await getDocs(pageQuery);
+      page += 1;
+      console.log(`📊 Página ${page}: ${snapshot.size} documentos`);
+
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        const timestamp = data.timestamp?.toDate ? data.timestamp.toDate() : data.timestamp;
+        const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt;
+
+        records.push({
+          id: docSnap.id,
+          ...data,
+          // Garante que sempre haja uma data confiável para filtros
+          timestamp: timestamp || createdAt || new Date(),
+          createdAt: createdAt || timestamp || new Date(),
+          lastUpdated: data.lastUpdated?.toDate ? data.lastUpdated.toDate() : data.lastUpdated,
+        } as AttendanceRecord);
+      });
+
+      if (snapshot.size < ATTENDANCE_PAGE_SIZE) {
+        break; // última página
+      }
+
+      if (Date.now() - startedAt > ATTENDANCE_FETCH_BUDGET_MS) {
+        console.warn(`⏱️ Orçamento de tempo excedido buscando attendance — devolvendo ${records.length} registros parciais.`);
+        break;
+      }
+
+      cursor = snapshot.docs[snapshot.docs.length - 1];
+    }
+
     console.log(`✅ ${records.length} registros processados com sucesso`);
     return records;
   } catch (error) {

@@ -4,7 +4,27 @@ import {
 } from '@/lib/actions';
 import { getAttendanceRecords } from '@/lib/api-actions'; // Usar API que preserva datas originais
 import type { AttendanceRecord } from '@/lib/types';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+// Timeout de segurança: garante que a tela nunca fique presa em "Carregando dados..."
+// indefinidamente. getAttendanceRecords já tem seu próprio orçamento de tempo interno
+// (25s) e devolve dados parciais; este timeout é uma rede de segurança adicional caso
+// algo trave antes mesmo da primeira página (ex.: rede completamente indisponível).
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
 
 // Função utilitária para processar timestamps do Firestore (mesma lógica do presenca-mysql.ts)
 function processFirebaseTimestamp(data: any, field: 'timestamp' | 'createdAt'): Date {
@@ -57,14 +77,26 @@ export function useReports() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Evita que uma chamada antiga (ex.: que estourou o timeout) sobrescreva o
+  // resultado de uma chamada mais recente ao terminar tardiamente.
+  const requestIdRef = useRef(0);
+
   const fetchData = async () => {
+    const requestId = ++requestIdRef.current;
     try {
       setLoading(true);
       setError(null);
-      
-      // Usa a API que preserva as datas originais
-      const records = await getAttendanceRecords();
-      
+
+      // Usa a API que preserva as datas originais, com timeout de segurança
+      // para nunca deixar a tela presa em "Carregando dados...".
+      const records = await withTimeout(
+        getAttendanceRecords(),
+        30000,
+        'Tempo de carregamento excedido. Verifique sua conexão e tente novamente.'
+      );
+
+      if (requestId !== requestIdRef.current) return; // uma chamada mais nova já assumiu
+
       if (!records || !Array.isArray(records)) {
         throw new Error('Nenhum registro encontrado');
       }
@@ -135,10 +167,16 @@ export function useReports() {
       };
       
       setReportData(customReportData);
-      
-      // Atualiza estatísticas semanais
+
+      // Atualiza estatísticas semanais (com timeout próprio, curto, para não
+      // segurar o relatório principal — que já carregou — caso essa consulta trave)
       try {
-        const weeklyRaw = await getWeeklyAttendanceStats();
+        const weeklyRaw = await withTimeout(
+          getWeeklyAttendanceStats(),
+          10000,
+          'Timeout ao carregar estatísticas semanais.'
+        );
+        if (requestId !== requestIdRef.current) return;
         const weekly: WeeklyStats[] = Object.entries(weeklyRaw).map(([date, present]) => ({
           date,
           present,
@@ -148,14 +186,15 @@ export function useReports() {
         setWeeklyStats(weekly);
       } catch (weeklyError) {
         console.warn('Erro ao carregar estatísticas semanais:', weeklyError);
-        setWeeklyStats([]);
+        if (requestId === requestIdRef.current) setWeeklyStats([]);
       }
-      
+
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       console.error('Erro ao carregar dados de relatório:', err);
-      setError('Erro ao carregar dados de relatório');
+      setError(err instanceof Error ? err.message : 'Erro ao carregar dados de relatório');
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   };
 
