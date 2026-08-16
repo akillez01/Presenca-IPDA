@@ -103,6 +103,7 @@ export default function ReportsPage() {
 
   // Estados de filtro simplificados
   const [regionFilter, setRegionFilter] = React.useState("ALL");
+  const [positionFilter, setPositionFilter] = React.useState("ALL"); // ✅ Filtro por cargo (Obreiro, Presbítero, etc.)
   const [search, setSearch] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState("todos"); // ✅ Filtro de status
   const [dateFilter, setDateFilter] = React.useState(""); // ✅ Filtro de data pontual (mantido para retrocompatibilidade)
@@ -164,6 +165,14 @@ export default function ReportsPage() {
   const availableRegions = React.useMemo(() => {
     if (!reportData) return [];
     return Array.from(new Set(reportData.records.map(r => r.region).filter(Boolean)));
+  }, [reportData]);
+
+  // Apenas os cargos disponíveis (Obreiro, Presbítero, etc.)
+  const availablePositions = React.useMemo(() => {
+    if (!reportData) return [];
+    return Array.from(new Set(reportData.records.map(r => r.churchPosition).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b, "pt-BR")
+    );
   }, [reportData]);
 
   // Meses disponíveis são extraídos dinamicamente dos próprios registros (todas as datas já registradas)
@@ -314,6 +323,14 @@ export default function ReportsPage() {
       return true;
     });
 
+    // ✅ Filtro de cargo (Obreiro, Presbítero, etc.)
+    records = records.filter(r => {
+      if (positionFilter !== "ALL" && r.churchPosition !== positionFilter) {
+        return false;
+      }
+      return true;
+    });
+
     // ✅ Filtro de data exata (legado) para quem ainda usa o campo único
     if (dateFilter && statusFilter !== "Ausente") {
       records = records.filter(r => {
@@ -360,7 +377,7 @@ export default function ReportsPage() {
     }
     
     return records;
-  }, [reportData, regionFilter, search, statusFilter, dateFilter, allMembers, monthFilter]);
+  }, [reportData, regionFilter, positionFilter, search, statusFilter, dateFilter, allMembers, monthFilter]);
 
   // Estatísticas filtradas
   const filteredStats = React.useMemo(() => {
@@ -377,6 +394,7 @@ export default function ReportsPage() {
   const isFilterActive = React.useMemo(() => {
     return (
       regionFilter !== "ALL" ||
+      positionFilter !== "ALL" ||
       search.trim() !== "" ||
       statusFilter !== "todos" ||
       dateFilter !== "" ||
@@ -384,11 +402,12 @@ export default function ReportsPage() {
       startDateFilter !== "" ||
       endDateFilter !== ""
     );
-  }, [dateFilter, endDateFilter, monthFilter, regionFilter, search, startDateFilter, statusFilter]);
+  }, [dateFilter, endDateFilter, monthFilter, regionFilter, positionFilter, search, startDateFilter, statusFilter]);
 
   // Função para limpar todos os filtros
   function clearAllFilters() {
     setRegionFilter("ALL");
+    setPositionFilter("ALL");
     setSearch("");
     setStatusFilter("todos"); // ✅ Limpar filtro de status
     setDateFilter(""); // ✅ Limpar filtro de data
@@ -776,7 +795,7 @@ export default function ReportsPage() {
                 </h2>
                 <div className="text-xs sm:text-sm text-gray-600 mt-1">
                   {isFiltersExpanded ? (
-                    "Combine filtros por status, data, mês, região e busca textual"
+                    "Combine filtros por status, data, mês, região, cargo e busca textual"
                   ) : (
                     <div className="flex flex-wrap gap-2 items-center">
                       <span className="font-semibold text-gray-900">{filteredRecords.length} registro(s)</span>
@@ -792,6 +811,7 @@ export default function ReportsPage() {
                       )}
                       {statusFilter !== "todos" && <span className="bg-green-100 px-2 py-0.5 rounded text-xs">✅ {statusFilter}</span>}
                       {regionFilter !== "ALL" && <span className="bg-orange-100 px-2 py-0.5 rounded text-xs truncate max-w-[120px]">📍 {regionFilter}</span>}
+                      {positionFilter !== "ALL" && <span className="bg-teal-100 px-2 py-0.5 rounded text-xs truncate max-w-[140px]">🧑‍💼 {positionFilter}</span>}
                       {monthFilter && (
                         <span className="bg-amber-100 px-2 py-0.5 rounded text-xs truncate max-w-[220px]">
                           🗓️ {formatMonthFilterLabel(monthFilter)}
@@ -867,8 +887,8 @@ export default function ReportsPage() {
                 </div>
               </div>
 
-              {/* Segunda Linha: Região e data */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
+              {/* Segunda Linha: Região, cargo e data */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 <div className="p-3 bg-purple-50 dark:bg-purple-950 rounded-lg">
                   <label className="block text-xs sm:text-sm font-medium mb-2 text-gray-900 dark:text-gray-100">
                     📅 Filtrar por Data
@@ -915,6 +935,22 @@ export default function ReportsPage() {
                     <option value="ALL">Todas as Regiões</option>
                     {availableRegions.map(region => (
                       <option key={region} value={region}>{region}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="p-3 bg-teal-50 dark:bg-teal-950 rounded-lg">
+                  <label className="block text-xs sm:text-sm font-medium mb-2 text-gray-900 dark:text-gray-100">
+                    🧑‍💼 Filtrar por Cargo
+                  </label>
+                  <select
+                    value={positionFilter}
+                    onChange={e => setPositionFilter(e.target.value)}
+                    className="w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border rounded px-2 sm:px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  >
+                    <option value="ALL">Todos os Cargos</option>
+                    {availablePositions.map(position => (
+                      <option key={position} value={position}>{position}</option>
                     ))}
                   </select>
                 </div>
