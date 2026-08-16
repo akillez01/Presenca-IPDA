@@ -14,6 +14,7 @@ import {
     deleteAttendanceRecord,
     getAllPresencas,
     getPresencas,
+    getPresencasByCpf,
     getPresencasByDateRange,
     getPresencaStats,
     updateAttendanceRecord as updateAttendanceRecordFirebase,
@@ -306,6 +307,11 @@ export async function getWeeklyAttendanceStats() {
 // Firebase: consulta por intervalo de datas
 export async function getAttendanceByDateRange(start: Date, end: Date) {
   return await getPresencasByDateRange(start, end);
+}
+
+// Firebase: histórico completo de um CPF, independente do período carregado na tela
+export async function getAttendanceHistoryByCpf(cpf: string) {
+  return await getPresencasByCpf(cpf);
 }
 
 export async function addAttendance(data: AttendanceFormValues) {

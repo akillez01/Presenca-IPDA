@@ -6,8 +6,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useRealtimeReports } from "@/hooks/use-reports";
-import { syncMemberProfile, updateAttendanceRecord } from "@/lib/actions";
+import { usePeriodReports } from "@/hooks/use-reports";
+import { getAttendanceHistoryByCpf, syncMemberProfile, updateAttendanceRecord } from "@/lib/actions";
 import { getMemberDirectoryRecords } from "@/lib/member-data";
 import type { AttendanceRecord } from "@/lib/types";
 import { Edit, FileDown, QrCode, Save, X } from "lucide-react";
@@ -99,7 +99,7 @@ function buildMonthOptionsForYear(referenceYear: number) {
 
 export default function ReportsPage() {
   // Hooks de dados
-  const { reportData, loading, error, refreshData } = useRealtimeReports();
+  const { reportData, loading, error, loadPeriod } = usePeriodReports();
 
   // Estados de filtro simplificados
   const [regionFilter, setRegionFilter] = React.useState("ALL");
@@ -111,6 +111,49 @@ export default function ReportsPage() {
   const [endDateFilter, setEndDateFilter] = React.useState("");
   const [monthFilter, setMonthFilter] = React.useState("");
   const [isFiltersExpanded, setIsFiltersExpanded] = React.useState(true); // ✅ Estado para expandir/minimizar
+
+  // ✅ Período efetivamente buscado no Firestore: por padrão só HOJE.
+  // Mudar mês/data/intervalo dispara uma nova consulta indexada só para aquele
+  // período — em vez de baixar o histórico inteiro de presença toda vez.
+  const selectedPeriod = React.useMemo(() => {
+    if (monthFilter) {
+      const [year, month] = monthFilter.split("-").map(Number);
+      return {
+        start: new Date(year, month - 1, 1),
+        end: new Date(year, month, 0), // último dia do mês
+      };
+    }
+    if (startDateFilter || endDateFilter) {
+      return {
+        start: new Date((startDateFilter || endDateFilter) + "T00:00:00"),
+        end: new Date((endDateFilter || startDateFilter) + "T00:00:00"),
+      };
+    }
+    if (dateFilter) {
+      const d = new Date(dateFilter + "T00:00:00");
+      return { start: d, end: d };
+    }
+    const today = new Date();
+    return { start: today, end: today };
+  }, [monthFilter, startDateFilter, endDateFilter, dateFilter]);
+
+  React.useEffect(() => {
+    loadPeriod(selectedPeriod.start, selectedPeriod.end);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPeriod]);
+
+  const refreshData = React.useCallback(() => {
+    loadPeriod(selectedPeriod.start, selectedPeriod.end);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPeriod]);
+
+  // Atualiza automaticamente o período atual a cada 5 minutos (mesma cadência de antes)
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      refreshData();
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [refreshData]);
 
   // Estados para modal interativo
   const [selectedRecord, setSelectedRecord] = React.useState<AttendanceRecord | null>(null);
@@ -161,54 +204,44 @@ export default function ReportsPage() {
     };
   }, [reportData]);
 
-  // Apenas as regiões disponíveis
+  // Regiões e cargos disponíveis vêm do cadastro mestre de membros (não do período
+  // carregado) — assim as opções não somem do filtro quando o dia/mês selecionado
+  // não tem ninguém daquela região/cargo.
   const availableRegions = React.useMemo(() => {
-    if (!reportData) return [];
-    return Array.from(new Set(reportData.records.map(r => r.region).filter(Boolean)));
-  }, [reportData]);
+    return Array.from(new Set(Array.from(allMembers.values()).map((m) => m.region).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b, "pt-BR")
+    );
+  }, [allMembers]);
 
   // Apenas os cargos disponíveis (Obreiro, Presbítero, etc.)
   const availablePositions = React.useMemo(() => {
-    if (!reportData) return [];
-    return Array.from(new Set(reportData.records.map(r => r.churchPosition).filter(Boolean))).sort((a, b) =>
+    return Array.from(new Set(Array.from(allMembers.values()).map((m) => m.churchPosition).filter(Boolean))).sort((a, b) =>
       a.localeCompare(b, "pt-BR")
     );
-  }, [reportData]);
+  }, [allMembers]);
 
-  // Meses disponíveis são extraídos dinamicamente dos próprios registros (todas as datas já registradas)
+  // Lista fixa dos últimos 24 meses (independente do período carregado — o mês
+  // escolhido aqui é que dispara a consulta ao Firestore, não o contrário).
   const availableMonths = React.useMemo(() => {
-    if (!reportData) return [] as { value: string; label: string }[];
+    const { year: curYear, month: curMonth } = getManausYearMonth(new Date());
+    const months: { value: string; label: string }[] = [];
 
-    const uniqueMonths = new Set<string>();
-
-    reportData.records.forEach((record) => {
-      if (!record.timestamp) return;
-      const { year, month } = getManausYearMonth(new Date(record.timestamp));
-      uniqueMonths.add(`${year}-${String(month).padStart(2, "0")}`);
-    });
-
-    return Array.from(uniqueMonths)
-      .sort((a, b) => (a > b ? -1 : 1)) // meses mais recentes primeiro
-      .map((value) => ({ value, label: formatMonthFilterLabel(value) }));
-  }, [reportData]);
-
-  React.useEffect(() => {
-    if (monthFilter && !availableMonths.some((monthOption) => monthOption.value === monthFilter)) {
-      setMonthFilter("");
+    for (let i = 0; i < 24; i++) {
+      const totalMonthIndex = curYear * 12 + (curMonth - 1) - i;
+      const y = Math.floor(totalMonthIndex / 12);
+      const m = (totalMonthIndex % 12) + 1;
+      const value = `${y}-${String(m).padStart(2, "0")}`;
+      months.push({ value, label: formatMonthFilterLabel(value) });
     }
-  }, [availableMonths, monthFilter]);
 
-  // Histórico completo do membro selecionado (baseado no CPF)
-  const memberHistory = React.useMemo(() => {
-    if (!selectedRecord || !selectedRecord.cpf || !reportData) return [];
-    return [...reportData.records]
-      .filter((r) => r.cpf === selectedRecord.cpf)
-      .sort((a, b) => {
-        const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-        const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-        return tb - ta; // mais recentes primeiro
-      });
-  }, [reportData, selectedRecord]);
+    return months;
+  }, []);
+
+  // Histórico completo do membro selecionado (baseado no CPF).
+  // Buscado sob demanda ao abrir o modal — não depende do período carregado na tela,
+  // então mostra TODO o histórico do CPF mesmo quando só "hoje" está na tela.
+  const [memberHistory, setMemberHistory] = React.useState<AttendanceRecord[]>([]);
+  const [isLoadingMemberHistory, setIsLoadingMemberHistory] = React.useState(false);
 
   // 🧮 FUNÇÃO PARA CALCULAR SIMILARIDADE ENTRE STRINGS (Distância de Levenshtein)
   function calcularSimilaridade(str1: string, str2: string): number {
@@ -426,10 +459,26 @@ export default function ReportsPage() {
     setPhotoPreview(null);
     setQrCodeUrl(null);
     setIsEditModalOpen(true);
-    
+    setMemberHistory([]);
+
     // Gerar QR Code automaticamente com o CPF
     if (record.cpf) {
       generateQRCode(record.cpf);
+      loadMemberHistory(record.cpf);
+    }
+  };
+
+  // Busca o histórico completo de presença do CPF (todas as datas), sob demanda
+  const loadMemberHistory = async (cpf: string) => {
+    setIsLoadingMemberHistory(true);
+    try {
+      const history = await getAttendanceHistoryByCpf(cpf);
+      setMemberHistory(history as unknown as AttendanceRecord[]);
+    } catch (historyError) {
+      console.error("Erro ao carregar histórico do membro:", historyError);
+      setMemberHistory([]);
+    } finally {
+      setIsLoadingMemberHistory(false);
     }
   };
 
@@ -513,6 +562,7 @@ export default function ReportsPage() {
     setIsEditMode(false);
     setPhotoPreview(null);
     setQrCodeUrl(null);
+    setMemberHistory([]);
   };
 
   // Funções de exportação para PDF
@@ -777,6 +827,20 @@ export default function ReportsPage() {
       {loading && (
         <div className="bg-blue-100 text-blue-700 p-2 sm:p-3 rounded text-sm">Carregando dados...</div>
       )}
+
+      {/* Indicador do período carregado — por padrão só o dia de hoje */}
+      <div className="bg-slate-100 text-slate-700 p-2 sm:p-3 rounded text-xs sm:text-sm">
+        📅 Mostrando: <strong>
+          {monthFilter
+            ? formatMonthFilterLabel(monthFilter)
+            : startDateFilter || endDateFilter
+              ? `${startDateFilter ? new Date(startDateFilter + "T00:00:00").toLocaleDateString("pt-BR") : "início livre"} → ${endDateFilter ? new Date(endDateFilter + "T00:00:00").toLocaleDateString("pt-BR") : "sem fim"}`
+              : dateFilter
+                ? new Date(dateFilter + "T00:00:00").toLocaleDateString("pt-BR")
+                : `hoje (${new Date().toLocaleDateString("pt-BR")})`}
+        </strong>{" "}
+        — use os filtros de mês, data ou intervalo abaixo para consultar outros períodos.
+      </div>
 
       {/* Filtros Colapsáveis */}
       <div className="w-full max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom duration-700" style={{ animationDelay: '100ms' }}>
@@ -1505,7 +1569,9 @@ export default function ReportsPage() {
                   </span>
                 </div>
 
-                {memberHistory.length === 0 ? (
+                {isLoadingMemberHistory ? (
+                  <p className="text-sm text-gray-600">Carregando histórico...</p>
+                ) : memberHistory.length === 0 ? (
                   <p className="text-sm text-gray-600">Nenhum histórico encontrado para este CPF.</p>
                 ) : (
                   <div className="max-h-72 overflow-y-auto border rounded-md bg-white">

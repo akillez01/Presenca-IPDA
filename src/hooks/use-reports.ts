@@ -300,3 +300,102 @@ export function useRealtimeReports(options?: RealtimeReportsOptions) {
     lastUpdate
   };
 }
+
+// ===== Hook independente: carrega só o período pedido (padrão: hoje) =====
+// Usado exclusivamente pela tela de Relatórios para não baixar o histórico
+// inteiro por padrão. Não compartilha estado com useReports/useRealtimeReports
+// (dashboard, monitor e aniversariantes continuam usando o histórico completo,
+// sem nenhuma mudança de comportamento).
+
+function buildReportDataFromRecords(records: AttendanceRecord[]): ReportData {
+  const totalRecords = records.length;
+  const presentCount = records.filter(r => r.status === 'Presente').length;
+  const justifiedCount = records.filter(r => r.status === 'Justificado').length;
+  const absentCount = records.filter(r => r.status === 'Ausente').length;
+
+  const byShift: Record<string, number> = {};
+  const byRegion: Record<string, number> = {};
+  const byPosition: Record<string, number> = {};
+  const byReclassification: Record<string, number> = {};
+
+  records.forEach(r => {
+    if (r.shift) byShift[r.shift] = (byShift[r.shift] || 0) + (r.status === 'Presente' ? 1 : 0);
+    if (r.region) byRegion[r.region] = (byRegion[r.region] || 0) + (r.status === 'Presente' ? 1 : 0);
+    if (r.churchPosition) byPosition[r.churchPosition] = (byPosition[r.churchPosition] || 0) + (r.status === 'Presente' ? 1 : 0);
+    if (r.reclassification) byReclassification[r.reclassification] = (byReclassification[r.reclassification] || 0) + (r.status === 'Presente' ? 1 : 0);
+  });
+
+  const attendanceRate = totalRecords > 0 ? (presentCount / totalRecords) * 100 : 0;
+
+  return {
+    summary: {
+      total: totalRecords,
+      present: presentCount,
+      justified: justifiedCount,
+      absent: absentCount,
+      attendanceRate: Math.round(attendanceRate * 100) / 100
+    },
+    byShift,
+    byRegion,
+    byPosition,
+    byReclassification,
+    records
+  };
+}
+
+export function usePeriodReports() {
+  const [reportData, setReportData] = useState<ReportData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
+
+  const loadPeriod = async (start: Date, end: Date) => {
+    const requestId = ++requestIdRef.current;
+    try {
+      setLoading(true);
+      setError(null);
+
+      const records = await withTimeout(
+        getAttendanceByDateRange(start, end),
+        20000,
+        'Tempo de carregamento excedido. Verifique sua conexão e tente novamente.'
+      );
+
+      if (requestId !== requestIdRef.current) return;
+      setReportData(buildReportDataFromRecords(records as unknown as AttendanceRecord[]));
+    } catch (err) {
+      if (requestId !== requestIdRef.current) return;
+      console.error('Erro ao carregar período do relatório:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao carregar dados do relatório');
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
+    }
+  };
+
+  // Disponível para o futuro caso seja preciso carregar o histórico inteiro sob demanda
+  // (ex.: um botão "carregar tudo") — usa a mesma leitura paginada já usada no dashboard.
+  const loadFullHistory = async () => {
+    const requestId = ++requestIdRef.current;
+    try {
+      setLoading(true);
+      setError(null);
+
+      const records = await withTimeout(
+        getAttendanceRecords(),
+        30000,
+        'Tempo de carregamento excedido. Verifique sua conexão e tente novamente.'
+      );
+
+      if (requestId !== requestIdRef.current) return;
+      setReportData(buildReportDataFromRecords(records));
+    } catch (err) {
+      if (requestId !== requestIdRef.current) return;
+      console.error('Erro ao carregar histórico completo do relatório:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao carregar dados do relatório');
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
+    }
+  };
+
+  return { reportData, loading, error, loadPeriod, loadFullHistory };
+}

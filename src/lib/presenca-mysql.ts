@@ -420,6 +420,16 @@ export async function getPresencaByCpf(cpf: string): Promise<Presenca | null> {
   return null;
 }
 
+// Histórico completo de presença de um CPF (todas as datas), mais recente primeiro.
+// Usado sob demanda (ex.: modal de detalhes) — não faz parte do carregamento padrão da tela de relatórios.
+export async function getPresencasByCpf(cpf: string): Promise<Presenca[]> {
+  const q = query(collection(db, "attendance"), where("cpf", "==", cpf));
+  const snapshot = await getDocs(q);
+  return snapshot.docs
+    .map(mapDocumentToPresenca)
+    .sort((a, b) => (b.timestamp?.getTime() ?? 0) - (a.timestamp?.getTime() ?? 0));
+}
+
 export async function getAllPresencas(): Promise<Presenca[]> {
   const q = query(
     collection(db, "attendance"),
