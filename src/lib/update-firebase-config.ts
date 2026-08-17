@@ -29,7 +29,16 @@ export async function updateFirebaseConfig() {
         'Líder Galileu (a)',
         'Líder Adote uma alma (a)',
         'Membro',
-        'Outro'
+        'Outro',
+        'Conselheiro(a) Financeiro(a)',
+        'Conselheiro(a) de Expansão',
+        'Conselheiro(a) Patrimonial',
+        'Auxiliar Galileu (a)',
+        'Auxiliar Adote uma alma (a)',
+        '2º Pastor',
+        '3º Pastor',
+        'Técnico(a) de Som',
+        'Controlador(a) de Entrada'
       ],
       lastUpdated: new Date(),
       updatedBy: 'system-update'

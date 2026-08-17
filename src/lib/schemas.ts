@@ -40,7 +40,16 @@ export const attendanceSchema = z.object({
     'Dirigente 2',
     'Dirigente 3',
     'Atendente Livraria',
-    'FInanceiro (a) Reviver'
+    'FInanceiro (a) Reviver',
+    'Conselheiro(a) Financeiro(a)',
+    'Conselheiro(a) de Expansão',
+    'Conselheiro(a) Patrimonial',
+    'Auxiliar Galileu (a)',
+    'Auxiliar Adote uma alma (a)',
+    '2º Pastor',
+    '3º Pastor',
+    'Técnico(a) de Som',
+    'Controlador(a) de Entrada'
   ], { required_error: "Selecione um cargo." }),
   city: z.string().min(2, { message: "O nome da cidade deve ter pelo menos 2 caracteres." }),
   shift: z.enum(['Manhã', 'Tarde'], { required_error: "Selecione um turno." }),

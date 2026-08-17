@@ -115,7 +115,16 @@ const createFormFields = (config: any): FieldInfo[] => [
       'Dirigente 2',
       'Dirigente 3',
       'Atendente Livraria',
-      'FInanceiro (a) Reviver'
+      'FInanceiro (a) Reviver',
+      'Conselheiro(a) Financeiro(a)',
+      'Conselheiro(a) de Expansão',
+      'Conselheiro(a) Patrimonial',
+      'Auxiliar Galileu (a)',
+      'Auxiliar Adote uma alma (a)',
+      '2º Pastor',
+      '3º Pastor',
+      'Técnico(a) de Som',
+      'Controlador(a) de Entrada'
     ]
   },
   { name: "city", label: "Cidade", icon: MapPin, placeholder: "Digite a cidade" },

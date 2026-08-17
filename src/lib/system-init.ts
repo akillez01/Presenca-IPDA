@@ -23,7 +23,16 @@ const DEFAULT_SYSTEM_CONFIG = {
     'Líder Galileu (a)',
     'Líder Adote uma alma (a)',
     'Membro',
-    'Outro'
+    'Outro',
+    'Conselheiro(a) Financeiro(a)',
+    'Conselheiro(a) de Expansão',
+    'Conselheiro(a) Patrimonial',
+    'Auxiliar Galileu (a)',
+    'Auxiliar Adote uma alma (a)',
+    '2º Pastor',
+    '3º Pastor',
+    'Técnico(a) de Som',
+    'Controlador(a) de Entrada'
   ],
   shiftOptions: ['Manhã', 'Tarde', 'Noite'],
   statusOptions: ['Presente', 'Ausente', 'Justificado'],
