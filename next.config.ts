@@ -4,7 +4,14 @@ import type { NextConfig } from 'next';
 // `npm run build` deve continuar gerando um build normal com suporte a rotas API.
 const isPleskBuild = process.env.BUILD_TARGET === 'plesk';
 
+// URL da Cloud Function que substitui /api/admin/users no export estático do Plesk
+// (hospedagem Apache não roda Node.js, então as rotas API não existem lá).
+const PLESK_ADMIN_USERS_API_URL = 'https://us-central1-reuniao-ministerial.cloudfunctions.net/adminUsers';
+
 const nextConfig: NextConfig = {
+  env: {
+    ...(isPleskBuild && { NEXT_PUBLIC_ADMIN_USERS_API_URL: PLESK_ADMIN_USERS_API_URL }),
+  },
   // Configurações básicas
   typescript: {
     ignoreBuildErrors: true,

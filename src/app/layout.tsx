@@ -17,25 +17,11 @@ export const metadata: Metadata = {
     template: '%s | IPDA'
   },
   description: 'Sistema de controle de presença para Igreja Pentecostal Deus é Amor',
-  icons: [
-    {
-      rel: 'icon',
-      type: 'image/png',
-      url: '/images/logodeuseamor.png',
-      sizes: '32x32'
-    },
-    {
-      rel: 'icon',
-      type: 'image/png',
-      url: '/images/logodeuseamor.png',
-      sizes: '192x192'
-    },
-    {
-      rel: 'apple-touch-icon',
-      url: '/images/logodeuseamor.png',
-      sizes: '180x180'
-    }
-  ],
+  // Favicon/apple-icon: gerados automaticamente pelo Next a partir de
+  // src/app/favicon.ico, src/app/icon.png e src/app/apple-icon.png (convenção de
+  // arquivo). Deixar de declarar `icons` aqui evita que o Next use metadata
+  // assíncrona (fica só no JS após hidratar) — com a convenção de arquivo a tag
+  // <link rel="icon"> já sai pronta no HTML, inclusive no export estático do Plesk.
   openGraph: {
     title: 'IPDA - Sistema de Presença',
     description: 'Sistema de controle de presença para Igreja Pentecostal Deus é Amor',

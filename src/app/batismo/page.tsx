@@ -3,9 +3,8 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { db, storage } from "@/lib/firebase";
-import { collection, deleteDoc, doc, getDocs, orderBy, query, setDoc, Timestamp } from "firebase/firestore";
-import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { db } from "@/lib/firebase";
+import { collection, deleteDoc, doc, getDocs, orderBy, query, setDoc } from "firebase/firestore";
 import {
   AlertCircle,
   ArrowLeft,
@@ -35,194 +34,79 @@ import {
   YAxis,
 } from "recharts";
 
+import {
+  analyzeFormForDocument,
+  BAPTISM_COLLECTION,
+  BAPTISM_PENDING_COLLECTION,
+  BAPTISM_PENDING_STORAGE_ROOT,
+  BAPTISM_STORAGE_ROOT,
+  type BaptismDocumentKey,
+  type BaptismDocumentMeta,
+  type BaptismFormData,
+  type BaptismRecord,
+  buildFilledPdfBytes,
+  buildRecordFromForm,
+  collapseWhitespace,
+  createEmptyForm,
+  createRecordId,
+  digitsOnly,
+  DOCUMENT_DEFINITIONS,
+  fetchPdfBytes,
+  fileToCompressedJpegDataUrl,
+  type FormIssue,
+  formatCepField,
+  formatCpfField,
+  formatDateField,
+  formatFileSize,
+  formatPhoneField,
+  formatStateField,
+  formatYearField,
+  getCenteredCropRect,
+  getDocumentChecklist,
+  inferDocumentMimeType,
+  isBaptismDocumentKey,
+  type IssueField,
+  isValidCepField,
+  isValidCpfField,
+  isValidDateParts,
+  isValidPhoneField,
+  makeBlobUrl,
+  mapFirestoreRecord,
+  normalizeFormData,
+  normalizeFormForDocument,
+  parseDateParts,
+  PDF_SOURCE_PATH,
+  PDF_TEXT_RULES,
+  PHOTO_ASPECT_RATIO,
+  PHOTO_MAX_HEIGHT,
+  PHOTO_MAX_WIDTH,
+  readFileAsDataUrl,
+  RECLASSIFICATION_OPTIONS,
+  type ReclassificationOption,
+  removeStorageFile,
+  sanitizeFileName,
+  sanitizeStorageFileName,
+  sourceToBytes,
+  stopMediaStream,
+  stripUndefinedDeep,
+  toggleChoice,
+  toIsoString,
+  uploadDocumentToStorage,
+  uploadPhotoToStorage,
+} from "@/lib/batismo-form";
+
 export const dynamic = "force-dynamic";
-
-const PDF_SOURCE_PATH = "/doc/Cadastro%20de%20batismo.pdf";
-const PHOTO_ASPECT_RATIO = 3 / 4; // 3x4 (largura/altura)
-const PHOTO_MAX_WIDTH = 900;
-const PHOTO_MAX_HEIGHT = 1200;
-const BAPTISM_COLLECTION = "baptism_records";
-const BAPTISM_STORAGE_ROOT = "batismo-files";
-
-type BaptismDocumentKey =
-  | "rgCpfCopy"
-  | "residenceProof"
-  | "birthCertificate"
-  | "marriageCertificate"
-  | "deathCertificate"
-  | "militaryCertificate";
-
-type BaptismDocumentMeta = {
-  key: BaptismDocumentKey;
-  label: string;
-  fileName: string;
-  mimeType: string;
-  size: number;
-  updatedAt: string;
-  storagePath?: string;
-  downloadUrl?: string;
-};
-
-type BaptismDocumentChecklistItem = {
-  key: BaptismDocumentKey;
-  label: string;
-  description: string;
-  required: boolean;
-};
-
-const DOCUMENT_DEFINITIONS: Record<
-  BaptismDocumentKey,
-  Omit<BaptismDocumentChecklistItem, "required">
-> = {
-  rgCpfCopy: {
-    key: "rgCpfCopy",
-    label: "Cópias do RG e CPF",
-    description: "Envie um PDF ou imagem com RG e CPF.",
-  },
-  residenceProof: {
-    key: "residenceProof",
-    label: "Comprovante de residência",
-    description: "Conta, declaração ou comprovante equivalente.",
-  },
-  birthCertificate: {
-    key: "birthCertificate",
-    label: "Certidão de nascimento",
-    description: "Certidão com averbações, quando houver.",
-  },
-  marriageCertificate: {
-    key: "marriageCertificate",
-    label: "Certidão de casamento",
-    description: "Certidão com todas as averbações.",
-  },
-  deathCertificate: {
-    key: "deathCertificate",
-    label: "Certidão de óbito",
-    description: "Obrigatória para viúvo(a).",
-  },
-  militaryCertificate: {
-    key: "militaryCertificate",
-    label: "Documento militar",
-    description: "Anexe quando aplicável ao membro.",
-  },
-};
-
-function isBaptismDocumentKey(value: string): value is BaptismDocumentKey {
-  return value in DOCUMENT_DEFINITIONS;
-}
-
-type BaptismFormData = {
-  baptismYear: string;
-  baptismMonth: "" | "Março" | "Setembro";
-
-  fullName: string;
-  phone: string;
-  birthDate: string; // yyyy-mm-dd ou dd/mm/aaaa
-  rg: string;
-  cpf: string;
-  photoDataUrl: string; // base64 local ou URL pública no Storage
-  photoStoragePath?: string;
-
-  maritalStatus: "" | "Solteiro(a)" | "Casado(a)" | "Viúvo(a)" | "Divorciado/Separado e sozinho";
-  maritalDate: string; // yyyy-mm-dd ou dd/mm/aaaa
-
-  address: string;
-  addressNumber: string;
-  neighborhood: string;
-  city: string;
-  state: string;
-  cep: string;
-
-  spiritualParentName: string; // vazio => marca "Não"
-  howArrived: "" | "Família" | "Amigo(a)" | "Visita no lar" | "Folheto" | "Rádio" | "Outro";
-  howArrivedOther: string;
-
-  arrivalSituation: "" | "Aceitou" | "Reconciliou" | "Uniu";
-
-  acceptedJesusWhere: "" | "IPDA" | "Outro ministério";
-  otherMinistry: string;
-
-  congregationAddress: string;
-  congregationNumber: string;
-  congregationNeighborhood: string;
-  congregationCity: string;
-  congregationState: string;
-
-  dirigenteName: string;
-  dirigentePhone: string;
-  sucursalName: string;
-  documents: Partial<Record<BaptismDocumentKey, BaptismDocumentMeta>>;
-};
-
-type BaptismRecord = {
-  id: string;
-  fullName: string;
-  cpf: string;
-  baptismYear: string;
-  baptismMonth: string;
-  congregation: string;
-  createdAt: string;
-  formData: BaptismFormData;
-  updatedAt?: string;
-};
-
-type IssueField = keyof BaptismFormData | "photoDataUrl" | "general";
-
-type FormIssue = {
-  field: IssueField;
-  message: string;
-};
-
-type FormAnalysis = {
-  errors: FormIssue[];
-  warnings: FormIssue[];
-};
+// Ordem das linhas no relatório agregado (segue o modelo oficial da planilha de batismo).
+const REPORT_PORTE_ORDER: ReclassificationOption[] = [
+  "Local",
+  "Setorial",
+  "Estadual",
+  "Regional",
+  "Casa de Oração",
+  "Central",
+];
 
 type PreviewMode = "filled" | "original";
-
-function createEmptyForm(): BaptismFormData {
-  return {
-    baptismYear: new Date().getFullYear().toString(),
-    baptismMonth: "",
-
-    fullName: "",
-    phone: "",
-    birthDate: "",
-    rg: "",
-    cpf: "",
-    photoDataUrl: "",
-    photoStoragePath: "",
-
-    maritalStatus: "",
-    maritalDate: "",
-
-    address: "",
-    addressNumber: "",
-    neighborhood: "",
-    city: "",
-    state: "",
-    cep: "",
-
-    spiritualParentName: "",
-    howArrived: "",
-    howArrivedOther: "",
-
-    arrivalSituation: "",
-
-    acceptedJesusWhere: "",
-    otherMinistry: "",
-
-    congregationAddress: "",
-    congregationNumber: "",
-    congregationNeighborhood: "",
-    congregationCity: "",
-    congregationState: "",
-
-    dirigenteName: "",
-    dirigentePhone: "",
-    sucursalName: "",
-    documents: {},
-  };
-}
 
 function createMockForm(): BaptismFormData {
   return normalizeFormForDocument({
@@ -236,6 +120,8 @@ function createMockForm(): BaptismFormData {
     cpf: "52998224725",
     photoDataUrl: "",
     photoStoragePath: "",
+
+    gender: "Masculino",
 
     maritalStatus: "Casado(a)",
     maritalDate: "2014-11-22",
@@ -264,128 +150,9 @@ function createMockForm(): BaptismFormData {
 
     dirigenteName: "Pr. Elias Ferreira",
     dirigentePhone: "92988112233",
-    sucursalName: "Sucursal Manaus Centro",
+    sucursalName: "Local",
     documents: {},
   });
-}
-
-function buildRecordFromForm(
-  formData: BaptismFormData,
-  options?: {
-    id?: string;
-    createdAt?: string;
-  }
-): BaptismRecord {
-  const normalized = normalizeFormForDocument(formData);
-
-  return {
-    id: options?.id ?? createRecordId(),
-    fullName: normalized.fullName,
-    cpf: normalized.cpf,
-    baptismYear: normalized.baptismYear,
-    baptismMonth: normalized.baptismMonth,
-    congregation: normalized.sucursalName || normalized.congregationCity || "-",
-    createdAt: options?.createdAt ?? new Date().toISOString(),
-    formData: normalized,
-  };
-}
-
-function normalizeFormData(data?: Partial<BaptismFormData> | null): BaptismFormData {
-  const base = createEmptyForm();
-  const merged = { ...base, ...(data ?? {}) };
-  return {
-    ...merged,
-    documents: { ...base.documents, ...(data?.documents ?? {}) },
-  };
-}
-
-function createRecordId() {
-  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `${Date.now()}`;
-}
-
-function sanitizeStorageFileName(value: string) {
-  const normalized = value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return normalized || "arquivo";
-}
-
-function toIsoString(value: unknown, fallback: string) {
-  if (typeof value === "string") {
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
-    return fallback;
-  }
-  if (value instanceof Date) return value.toISOString();
-  if (value instanceof Timestamp) return value.toDate().toISOString();
-  return fallback;
-}
-
-function stripUndefinedDeep<T>(value: T): T {
-  if (Array.isArray(value)) {
-    return value.map((item) => stripUndefinedDeep(item)) as T;
-  }
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, item]) => item !== undefined)
-      .map(([key, item]) => [key, stripUndefinedDeep(item)]);
-    return Object.fromEntries(entries) as T;
-  }
-  return value;
-}
-
-function mapFirestoreRecord(id: string, payload: Record<string, unknown>): BaptismRecord {
-  const createdAt = toIsoString(payload.createdAt, new Date().toISOString());
-  const updatedAt = payload.updatedAt ? toIsoString(payload.updatedAt, createdAt) : undefined;
-  const parsedForm = normalizeFormData((payload.formData as Partial<BaptismFormData> | undefined) ?? {});
-
-  const normalizedDocuments = Object.fromEntries(
-    Object.entries(parsedForm.documents ?? {})
-      .filter(([rawKey]) => isBaptismDocumentKey(rawKey))
-      .map(([rawKey, rawMeta]) => {
-        const documentKey = rawKey as BaptismDocumentKey;
-        const meta = rawMeta as Partial<BaptismDocumentMeta> | undefined;
-        return [
-          documentKey,
-          {
-            key: documentKey,
-            label: meta?.label || DOCUMENT_DEFINITIONS[documentKey].label,
-            fileName: meta?.fileName || "",
-            mimeType: meta?.mimeType || "application/octet-stream",
-            size: Number(meta?.size || 0),
-            updatedAt: toIsoString(meta?.updatedAt, createdAt),
-            ...(meta?.storagePath ? { storagePath: meta.storagePath } : {}),
-            ...(meta?.downloadUrl ? { downloadUrl: meta.downloadUrl } : {}),
-          } satisfies BaptismDocumentMeta,
-        ];
-      })
-  ) as Partial<Record<BaptismDocumentKey, BaptismDocumentMeta>>;
-
-  const formData: BaptismFormData = {
-    ...parsedForm,
-    documents: normalizedDocuments,
-    ...(parsedForm.photoStoragePath ? { photoStoragePath: parsedForm.photoStoragePath } : {}),
-  };
-
-  return {
-    id,
-    fullName: typeof payload.fullName === "string" ? payload.fullName : formData.fullName,
-    cpf: typeof payload.cpf === "string" ? payload.cpf : formData.cpf,
-    baptismYear: typeof payload.baptismYear === "string" ? payload.baptismYear : formData.baptismYear,
-    baptismMonth: typeof payload.baptismMonth === "string" ? payload.baptismMonth : formData.baptismMonth,
-    congregation:
-      typeof payload.congregation === "string"
-        ? payload.congregation
-        : formData.sucursalName || formData.congregationCity || "-",
-    createdAt,
-    updatedAt,
-    formData,
-  };
 }
 
 async function loadRecordsFromFirebase() {
@@ -403,19 +170,25 @@ async function saveRecordToFirebase(record: BaptismRecord) {
   await setDoc(docRef, payload);
 }
 
-async function removeStorageFile(storagePath?: string) {
-  if (!storagePath) return;
-  try {
-    await deleteObject(ref(storage, storagePath));
-  } catch (error) {
-    console.warn("Falha ao remover arquivo do Storage:", error);
-  }
+async function loadPendingSubmissions() {
+  // Todo documento em BAPTISM_PENDING_COLLECTION é, por definição, um cadastro
+  // aguardando revisão: aprovar ou rejeitar sempre remove o documento da coleção.
+  const pendingRef = collection(db, BAPTISM_PENDING_COLLECTION);
+  const snapshot = await getDocs(query(pendingRef, orderBy("createdAt", "desc")));
+  return snapshot.docs.map((snap) => mapFirestoreRecord(snap.id, snap.data() as Record<string, unknown>));
 }
 
-function formatFileSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+async function deletePendingSubmission(pending: BaptismRecord) {
+  await deleteDoc(doc(db, BAPTISM_PENDING_COLLECTION, pending.id));
+
+  const documentPaths = Object.values(pending.formData.documents ?? {})
+    .map((meta) => meta?.storagePath)
+    .filter((path): path is string => Boolean(path));
+
+  await Promise.all([
+    removeStorageFile(pending.formData.photoStoragePath),
+    ...documentPaths.map((path) => removeStorageFile(path)),
+  ]);
 }
 
 function formatDateTime(value?: string) {
@@ -450,36 +223,6 @@ function getErrorDetail(error: unknown) {
   return message || code || "Erro desconhecido.";
 }
 
-function getDocumentChecklist(
-  maritalStatus: BaptismFormData["maritalStatus"]
-): BaptismDocumentChecklistItem[] {
-  const required = new Set<BaptismDocumentKey>(["rgCpfCopy", "residenceProof", "militaryCertificate"]);
-
-  if (maritalStatus.includes("Solteiro")) required.add("birthCertificate");
-  if (maritalStatus.includes("Casado")) required.add("marriageCertificate");
-  if (maritalStatus.includes("Viúvo")) {
-    required.add("marriageCertificate");
-    required.add("deathCertificate");
-  }
-  if (maritalStatus.toLowerCase().includes("divorciado")) {
-    required.add("marriageCertificate");
-  }
-
-  const order: BaptismDocumentKey[] = [
-    "rgCpfCopy",
-    "residenceProof",
-    "birthCertificate",
-    "marriageCertificate",
-    "deathCertificate",
-    "militaryCertificate",
-  ];
-
-  return order.map((key) => ({
-    ...DOCUMENT_DEFINITIONS[key],
-    required: required.has(key),
-  }));
-}
-
 function getRequiredDocumentSummary(record: BaptismRecord) {
   const requiredItems = getDocumentChecklist(record.formData.maritalStatus).filter((item) => item.required);
   const attachedRequiredCount = requiredItems.filter((item) => Boolean(record.formData.documents?.[item.key])).length;
@@ -491,358 +234,6 @@ function getRequiredDocumentSummary(record: BaptismRecord) {
     missingRequiredCount,
     isComplete: missingRequiredCount === 0,
   };
-}
-
-function toFourDigitYear(yearRaw: string) {
-  if (yearRaw.length === 4) return yearRaw;
-  if (yearRaw.length !== 2) return yearRaw;
-  const y = Number(yearRaw);
-  if (Number.isNaN(y)) return yearRaw;
-  return String(y <= 30 ? 2000 + y : 1900 + y);
-}
-
-function parseDateParts(value: string) {
-  const v = value.trim();
-  if (!v) return null;
-
-  const iso = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (iso) {
-    return { day: iso[3], month: iso[2], year: iso[1] };
-  }
-
-  const br = v.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
-  if (br) {
-    return {
-      day: br[1].padStart(2, "0"),
-      month: br[2].padStart(2, "0"),
-      year: toFourDigitYear(br[3]),
-    };
-  }
-
-  const digits = v.replace(/\D/g, "");
-  if (digits.length === 8) {
-    const first4 = Number(digits.slice(0, 4));
-    if (first4 >= 1900 && first4 <= 2100) {
-      return { day: digits.slice(6, 8), month: digits.slice(4, 6), year: digits.slice(0, 4) };
-    }
-    return { day: digits.slice(0, 2), month: digits.slice(2, 4), year: digits.slice(4, 8) };
-  }
-
-  if (digits.length === 6) {
-    return {
-      day: digits.slice(0, 2),
-      month: digits.slice(2, 4),
-      year: toFourDigitYear(digits.slice(4, 6)),
-    };
-  }
-
-  return null;
-}
-
-function isValidDateParts(day: string, month: string, year: string) {
-  const d = Number(day);
-  const m = Number(month);
-  const y = Number(year);
-  if (Number.isNaN(d) || Number.isNaN(m) || Number.isNaN(y)) return false;
-  if (year.length !== 4 || m < 1 || m > 12 || d < 1 || d > 31) return false;
-
-  const dt = new Date(y, m - 1, d);
-  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
-}
-
-function formatDateParts(day: string, month: string, year: string) {
-  return `${day.padStart(2, "0")}/${month.padStart(2, "0")}/${year}`;
-}
-
-function formatDateField(value?: string) {
-  if (!value) return "";
-  const v = value.trim();
-  if (!v) return "";
-
-  const parts = parseDateParts(v);
-  if (!parts) return v;
-  if (!isValidDateParts(parts.day, parts.month, parts.year)) return v;
-  return formatDateParts(parts.day, parts.month, parts.year);
-}
-
-function formatPhoneField(value?: string) {
-  if (!value) return "";
-  const v = value.trim();
-  if (!v) return "";
-
-  let digits = v.replace(/\D/g, "");
-  if (digits.startsWith("55") && digits.length >= 12) {
-    digits = digits.slice(2);
-  }
-
-  if (digits.length === 11) {
-    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
-  }
-  if (digits.length === 10) {
-    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
-  }
-
-  return v;
-}
-
-function digitsOnly(value?: string) {
-  return (value || "").replace(/\D/g, "");
-}
-
-function collapseWhitespace(value?: string) {
-  return (value || "").replace(/\s+/g, " ").trim();
-}
-
-function formatCpfField(value?: string) {
-  const digits = digitsOnly(value).slice(0, 11);
-  if (digits.length <= 3) return digits;
-  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
-  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
-  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
-}
-
-function formatCepField(value?: string) {
-  const digits = digitsOnly(value).slice(0, 8);
-  if (digits.length <= 5) return digits;
-  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
-}
-
-function formatStateField(value?: string) {
-  return (value || "")
-    .replace(/[^a-zA-Z]/g, "")
-    .slice(0, 2)
-    .toUpperCase();
-}
-
-function formatYearField(value?: string) {
-  return digitsOnly(value).slice(0, 4);
-}
-
-function isValidPhoneField(value?: string) {
-  let digits = digitsOnly(value);
-  if (digits.startsWith("55") && digits.length >= 12) {
-    digits = digits.slice(2);
-  }
-  return digits.length === 10 || digits.length === 11;
-}
-
-function isValidCepField(value?: string) {
-  return digitsOnly(value).length === 8;
-}
-
-function isValidCpfField(value?: string) {
-  const digits = digitsOnly(value);
-  if (digits.length !== 11 || /^(\d)\1{10}$/.test(digits)) return false;
-
-  let sum = 0;
-  for (let i = 0; i < 9; i += 1) {
-    sum += Number(digits[i]) * (10 - i);
-  }
-  let check = (sum * 10) % 11;
-  if (check === 10) check = 0;
-  if (check !== Number(digits[9])) return false;
-
-  sum = 0;
-  for (let i = 0; i < 10; i += 1) {
-    sum += Number(digits[i]) * (11 - i);
-  }
-  check = (sum * 10) % 11;
-  if (check === 10) check = 0;
-  return check === Number(digits[10]);
-}
-
-function sanitizeFileName(value: string) {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
-
-function toggleChoice<T extends string>(current: T | "", value: T) {
-  return current === value ? "" : value;
-}
-
-function makeIssue(field: IssueField, message: string): FormIssue {
-  return { field, message };
-}
-
-function normalizeFormForDocument(data: BaptismFormData): BaptismFormData {
-  const normalized: BaptismFormData = {
-    ...data,
-    baptismYear: formatYearField(data.baptismYear),
-    fullName: collapseWhitespace(data.fullName),
-    phone: formatPhoneField(data.phone),
-    birthDate: formatDateField(data.birthDate),
-    rg: collapseWhitespace(data.rg),
-    cpf: formatCpfField(data.cpf),
-    photoStoragePath: collapseWhitespace(data.photoStoragePath),
-    maritalDate: formatDateField(data.maritalDate),
-    address: collapseWhitespace(data.address),
-    addressNumber: collapseWhitespace(data.addressNumber),
-    neighborhood: collapseWhitespace(data.neighborhood),
-    city: collapseWhitespace(data.city),
-    state: formatStateField(data.state),
-    cep: formatCepField(data.cep),
-    spiritualParentName: collapseWhitespace(data.spiritualParentName),
-    howArrivedOther: collapseWhitespace(data.howArrivedOther),
-    otherMinistry: collapseWhitespace(data.otherMinistry),
-    congregationAddress: collapseWhitespace(data.congregationAddress),
-    congregationNumber: collapseWhitespace(data.congregationNumber),
-    congregationNeighborhood: collapseWhitespace(data.congregationNeighborhood),
-    congregationCity: collapseWhitespace(data.congregationCity),
-    congregationState: formatStateField(data.congregationState),
-    dirigenteName: collapseWhitespace(data.dirigenteName),
-    dirigentePhone: formatPhoneField(data.dirigentePhone),
-    sucursalName: collapseWhitespace(data.sucursalName),
-  };
-
-  if (normalized.howArrived !== "Outro") {
-    normalized.howArrivedOther = "";
-  }
-
-  if (normalized.acceptedJesusWhere !== "Outro ministério") {
-    normalized.otherMinistry = "";
-  }
-
-  if ((normalized.photoDataUrl || "").startsWith("data:image/")) {
-    normalized.photoStoragePath = "";
-  }
-
-  return normalized;
-}
-
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("Não foi possível ler a imagem."));
-    reader.readAsDataURL(file);
-  });
-}
-
-function loadImageFromDataUrl(dataUrl: string) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const img = new window.Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Não foi possível carregar a imagem."));
-    img.src = dataUrl;
-  });
-}
-
-function getCenteredCropRect(srcWidth: number, srcHeight: number, targetRatio: number) {
-  const srcRatio = srcWidth / srcHeight;
-  let sx = 0;
-  let sy = 0;
-  let sw = srcWidth;
-  let sh = srcHeight;
-
-  if (srcRatio > targetRatio) {
-    sw = Math.round(srcHeight * targetRatio);
-    sx = Math.round((srcWidth - sw) / 2);
-  } else if (srcRatio < targetRatio) {
-    sh = Math.round(srcWidth / targetRatio);
-    sy = Math.round((srcHeight - sh) / 2);
-  }
-
-  return { sx, sy, sw, sh };
-}
-
-async function fileToCompressedJpegDataUrl(file: File) {
-  const rawDataUrl = await readFileAsDataUrl(file);
-  const img = await loadImageFromDataUrl(rawDataUrl);
-  const crop = getCenteredCropRect(img.width, img.height, PHOTO_ASPECT_RATIO);
-  const scale = Math.min(1, PHOTO_MAX_WIDTH / crop.sw, PHOTO_MAX_HEIGHT / crop.sh);
-  const width = Math.max(1, Math.round(crop.sw * scale));
-  const height = Math.max(1, Math.round(crop.sh * scale));
-
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Não foi possível processar a foto.");
-
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, width, height);
-  ctx.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, width, height);
-
-  return canvas.toDataURL("image/jpeg", 0.86);
-}
-
-async function sourceToBytes(source: string) {
-  const res = await fetch(source);
-  if (!res.ok) throw new Error("Não foi possível carregar a imagem.");
-  return {
-    bytes: new Uint8Array(await res.arrayBuffer()),
-    mimeType: res.headers.get("content-type") || "",
-  };
-}
-
-async function uploadPhotoToStorage(
-  recordId: string,
-  photoSource: string,
-  previousStoragePath?: string
-): Promise<{ photoDataUrl: string; photoStoragePath: string }> {
-  const { bytes, mimeType } = await sourceToBytes(photoSource);
-  const extension = mimeType.includes("png") ? "png" : "jpg";
-  const storagePath = `${BAPTISM_STORAGE_ROOT}/${recordId}/photo-${Date.now()}.${extension}`;
-  const uploadRef = ref(storage, storagePath);
-
-  await uploadBytes(uploadRef, bytes, {
-    contentType: mimeType || `image/${extension}`,
-    customMetadata: {
-      recordId,
-      category: "baptism-photo",
-      uploadedAt: new Date().toISOString(),
-    },
-  });
-
-  const downloadUrl = await getDownloadURL(uploadRef);
-
-  if (previousStoragePath && previousStoragePath !== storagePath) {
-    await removeStorageFile(previousStoragePath);
-  }
-
-  return {
-    photoDataUrl: downloadUrl,
-    photoStoragePath: storagePath,
-  };
-}
-
-function inferDocumentMimeType(file: File) {
-  if (file.type) return file.type;
-  const lowerName = file.name.toLowerCase();
-  if (lowerName.endsWith(".pdf")) return "application/pdf";
-  if (lowerName.endsWith(".png")) return "image/png";
-  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return "image/jpeg";
-  return "application/octet-stream";
-}
-
-async function uploadDocumentToStorage(recordId: string, documentKey: BaptismDocumentKey, file: File) {
-  const safeName = sanitizeStorageFileName(file.name);
-  const storagePath = `${BAPTISM_STORAGE_ROOT}/${recordId}/documents/${documentKey}-${Date.now()}-${safeName}`;
-  const uploadRef = ref(storage, storagePath);
-  const mimeType = inferDocumentMimeType(file);
-
-  await uploadBytes(uploadRef, file, {
-    contentType: mimeType,
-    customMetadata: {
-      recordId,
-      documentKey,
-      uploadedAt: new Date().toISOString(),
-    },
-  });
-
-  const downloadUrl = await getDownloadURL(uploadRef);
-  return { storagePath, downloadUrl };
-}
-
-function stopMediaStream(stream: MediaStream | null) {
-  if (!stream) return;
-  stream.getTracks().forEach((track) => track.stop());
 }
 
 function createMockPhotoDataUrl(name: string) {
@@ -884,373 +275,510 @@ function createMockPhotoDataUrl(name: string) {
   return canvas.toDataURL("image/png");
 }
 
-const POS = {
-  // Topo: "Batismo de 202__ ( ) Março ( ) Setembro"
-  yearLast2: { x: 335, y: 806 },
-  monthMarchX: { x: 236.75, y: 790 },
-  monthSeptX: { x: 299.37, y: 790 },
-  photoBox: { x: 486, y: 670, width: 82, height: 102 },
+function triggerBlobDownload(bytes: BlobPart, mimeType: string, fileName: string) {
+  const blob = new Blob([bytes], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
 
-  // 1) Dados
-  fullName: { x: 106, y: 620 },
-  phone: { x: 466.27, y: 620 },
-  birthDate: { dayX: 130, monthX: 152, yearX: 176, y: 599 },
-  rg: { x: 249, y: 599 },
-  cpf: { x: 411, y: 599 },
+// ===========================
+// Relatório agregado de batismo (por Reclassificação)
+// ===========================
 
-  maritalSolteiroX: { x: 89.14, y: 577 },
-  maritalCasadoX: { x: 164.9, y: 577 },
-  maritalViuvoX: { x: 351.43, y: 577 },
-  maritalDivorciadoX: { x: 415.17, y: 577 },
-  maritalDate: { dayX: 266, monthX: 292, yearX: 317, y: 577 },
-
-  address: { x: 76, y: 556 },
-  addressNumber: { x: 526, y: 556 },
-  neighborhood: { x: 62, y: 534 },
-  city: { x: 65, y: 513 },
-  state: { x: 346.25, y: 513 },
-  cep: { x: 412, y: 513 },
-
-  spiritualNoX: { x: 149.06, y: 492 },
-  spiritualYesX: { x: 191.27, y: 492 },
-  spiritualName: { x: 288, y: 492 },
-
-  howFamiliaX: { x: 137.13, y: 470 },
-  howAmigoX: { x: 195.62, y: 470 },
-  howVisitaX: { x: 262.76, y: 470 },
-  howFolhetoX: { x: 342.16, y: 470 },
-  howRadioX: { x: 402.76, y: 470 },
-  howOutroX: { x: 454.74, y: 470 },
-  howOtherText: { x: 466, y: 470 },
-
-  arrivalAceitouX: { x: 206.17, y: 449 },
-  arrivalReconciliouX: { x: 269.49, y: 449 },
-  arrivalUniuX: { x: 350.1, y: 449 },
-
-  acceptedIpdaX: { x: 144.8, y: 427 },
-  acceptedOtherX: { x: 195.53, y: 427 },
-  otherMinistry: { x: 286.07, y: 427 },
-
-  // 2) Congregação
-  congAddress: { x: 76, y: 381 },
-  congNumber: { x: 529, y: 381 },
-  congNeighborhood: { x: 61, y: 359 },
-  congCity: { x: 346.25, y: 359 },
-  congState: { x: 537.76, y: 359 },
-  dirigenteName: { x: 118, y: 338 },
-  dirigentePhone: { x: 479.38, y: 338 },
-  sucursalName: { x: 212.45, y: 316 },
+type PorteAggregate = {
+  porte: ReclassificationOption;
+  total: number;
+  masculino: number;
+  feminino: number;
+  casados: number;
+  solteiros: number;
+  divorciados: number;
+  viuvos: number;
+  idade16a18: number;
+  idade19a30: number;
+  idade31a99: number;
 };
 
-const PDF_TEXT_RULES: Array<{ field: keyof BaptismFormData; label: string; maxWidth: number }> = [
-  { field: "fullName", label: "Nome completo", maxWidth: 350 },
-  { field: "phone", label: "Telefone", maxWidth: 95 },
-  { field: "birthDate", label: "Data de nascimento", maxWidth: 90 },
-  { field: "rg", label: "RG", maxWidth: 120 },
-  { field: "cpf", label: "CPF", maxWidth: 150 },
-  { field: "maritalDate", label: "Data do casamento", maxWidth: 74 },
-  { field: "address", label: "Endereço", maxWidth: 420 },
-  { field: "addressNumber", label: "Número", maxWidth: 50 },
-  { field: "neighborhood", label: "Bairro", maxWidth: 500 },
-  { field: "city", label: "Cidade", maxWidth: 230 },
-  { field: "state", label: "UF", maxWidth: 50 },
-  { field: "cep", label: "CEP", maxWidth: 120 },
-  { field: "spiritualParentName", label: "Pai/Mãe espiritual", maxWidth: 270 },
-  { field: "howArrivedOther", label: "Outro motivo de chegada", maxWidth: 140 },
-  { field: "otherMinistry", label: "Outro ministério", maxWidth: 240 },
-  { field: "congregationAddress", label: "Endereço da congregação", maxWidth: 390 },
-  { field: "congregationNumber", label: "Número da congregação", maxWidth: 60 },
-  { field: "congregationNeighborhood", label: "Bairro da congregação", maxWidth: 230 },
-  { field: "congregationCity", label: "Cidade da congregação", maxWidth: 170 },
-  { field: "congregationState", label: "UF da congregação", maxWidth: 50 },
-  { field: "dirigenteName", label: "Dirigente", maxWidth: 250 },
-  { field: "dirigentePhone", label: "Telefone do dirigente", maxWidth: 120 },
-  { field: "sucursalName", label: "Sede sucursal", maxWidth: 320 },
-];
+type ReportHeaderInfo = {
+  estado: string;
+  uf: string;
+  dataBatismo: string;
+  endereco: string;
+  numero: string;
+  bairro: string;
+  responsavel: string;
+  telefoneResponsavel: string;
+  cep: string;
+  telefoneIpda: string;
+  cidade: string;
+};
 
-let cachedBasePdfBytes: Uint8Array | null = null;
-let textMeasureContext: CanvasRenderingContext2D | null = null;
+function calculateAgeFromBrDate(value: string): number | null {
+  const parts = parseDateParts(value);
+  if (!parts || !isValidDateParts(parts.day, parts.month, parts.year)) return null;
 
-async function fetchPdfBytes(path: string) {
-  if (cachedBasePdfBytes) {
-    return new Uint8Array(cachedBasePdfBytes);
+  const birth = new Date(Number(parts.year), Number(parts.month) - 1, Number(parts.day));
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const monthDiff = now.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) {
+    age -= 1;
   }
-  const res = await fetch(path, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Não foi possível carregar o PDF base (${res.status}).`);
-  cachedBasePdfBytes = new Uint8Array(await res.arrayBuffer());
-  return new Uint8Array(cachedBasePdfBytes);
+  return age;
 }
 
-function fitText(text: string, maxWidth: number, measure: (t: string) => number) {
-  const v = (text || "").trim();
-  if (!v) return "";
-  if (measure(v) <= maxWidth) return v;
+function buildPorteAggregates(records: BaptismRecord[]): PorteAggregate[] {
+  const buckets = new Map<ReclassificationOption, PorteAggregate>(
+    REPORT_PORTE_ORDER.map((porte) => [
+      porte,
+      {
+        porte,
+        total: 0,
+        masculino: 0,
+        feminino: 0,
+        casados: 0,
+        solteiros: 0,
+        divorciados: 0,
+        viuvos: 0,
+        idade16a18: 0,
+        idade19a30: 0,
+        idade31a99: 0,
+      },
+    ])
+  );
 
-  let out = v;
-  while (out.length > 0 && measure(out + "…") > maxWidth) {
-    out = out.slice(0, -1);
-  }
-  return out.length ? out + "…" : "";
-}
+  records.forEach((record) => {
+    const data = record.formData;
+    const porte = data.sucursalName;
+    const bucket = porte ? buckets.get(porte) : undefined;
+    if (!bucket) return; // registros sem reclassificação selecionada não entram no relatório agregado
 
-function measureTextWidth(text: string) {
-  if (!text) return 0;
-  if (typeof document === "undefined") return text.length * 5.8;
+    bucket.total += 1;
+    if (data.gender === "Masculino") bucket.masculino += 1;
+    if (data.gender === "Feminino") bucket.feminino += 1;
 
-  if (!textMeasureContext) {
-    const canvas = document.createElement("canvas");
-    textMeasureContext = canvas.getContext("2d");
-  }
+    if (data.maritalStatus === "Casado(a)") bucket.casados += 1;
+    else if (data.maritalStatus === "Solteiro(a)") bucket.solteiros += 1;
+    else if (data.maritalStatus === "Divorciado/Separado e sozinho") bucket.divorciados += 1;
+    else if (data.maritalStatus === "Viúvo(a)") bucket.viuvos += 1;
 
-  if (!textMeasureContext) return text.length * 5.8;
-  textMeasureContext.font = "10.2px Arial";
-  return textMeasureContext.measureText(text).width;
-}
-
-function analyzeFormForDocument(data: BaptismFormData): FormAnalysis {
-  const errors: FormIssue[] = [];
-  const warnings: FormIssue[] = [];
-
-  const birthDateParts = parseDateParts(data.birthDate);
-  const maritalDateParts = parseDateParts(data.maritalDate);
-
-  if (data.baptismYear.length !== 4) {
-    errors.push(makeIssue("baptismYear", "Informe o ano do batismo com 4 dígitos."));
-  }
-  if (!data.baptismMonth) {
-    errors.push(makeIssue("baptismMonth", "Selecione o mês do batismo."));
-  }
-  if (!data.fullName) {
-    errors.push(makeIssue("fullName", "Preencha o nome completo."));
-  }
-  if (!data.photoDataUrl) {
-    errors.push(makeIssue("photoDataUrl", "Adicione a fotografia 3x4."));
-  }
-  if (!data.birthDate) {
-    errors.push(makeIssue("birthDate", "Preencha a data de nascimento."));
-  } else if (!birthDateParts || !isValidDateParts(birthDateParts.day, birthDateParts.month, birthDateParts.year)) {
-    errors.push(makeIssue("birthDate", "Use uma data de nascimento válida."));
-  }
-  if (data.phone && !isValidPhoneField(data.phone)) {
-    errors.push(makeIssue("phone", "Revise o telefone. Use DDD + número com 10 ou 11 dígitos."));
-  }
-  if (data.dirigentePhone && !isValidPhoneField(data.dirigentePhone)) {
-    errors.push(makeIssue("dirigentePhone", "Revise o telefone do dirigente."));
-  }
-  if (data.cpf && !isValidCpfField(data.cpf)) {
-    errors.push(makeIssue("cpf", "O CPF informado é inválido."));
-  }
-  if (data.cep && !isValidCepField(data.cep)) {
-    errors.push(makeIssue("cep", "O CEP deve ter 8 dígitos."));
-  }
-  if (data.state && data.state.length !== 2) {
-    errors.push(makeIssue("state", "A UF deve conter 2 letras."));
-  }
-  if (data.congregationState && data.congregationState.length !== 2) {
-    errors.push(makeIssue("congregationState", "A UF da congregação deve conter 2 letras."));
-  }
-  if (data.maritalDate && (!maritalDateParts || !isValidDateParts(maritalDateParts.day, maritalDateParts.month, maritalDateParts.year))) {
-    errors.push(makeIssue("maritalDate", "Use uma data de casamento válida."));
-  }
-  if (data.howArrived === "Outro" && !data.howArrivedOther) {
-    errors.push(makeIssue("howArrivedOther", "Descreva como a pessoa chegou na IPDA quando marcar 'Outro'."));
-  }
-  if (data.acceptedJesusWhere === "Outro ministério" && !data.otherMinistry) {
-    errors.push(makeIssue("otherMinistry", "Informe o ministério quando marcar 'Outro ministério'."));
-  }
-
-  if (!data.phone) warnings.push(makeIssue("phone", "Telefone vazio. O contato ficará ausente no documento."));
-  if (!data.rg) warnings.push(makeIssue("rg", "RG vazio."));
-  if (!data.cpf) warnings.push(makeIssue("cpf", "CPF vazio."));
-  if (!data.maritalStatus) warnings.push(makeIssue("maritalStatus", "Estado civil não selecionado."));
-  if (data.maritalStatus === "Casado(a)" && !data.maritalDate) {
-    warnings.push(makeIssue("maritalDate", "Casado(a) sem data do casamento."));
-  }
-  if (!data.address) warnings.push(makeIssue("address", "Endereço residencial vazio."));
-  if (!data.addressNumber) warnings.push(makeIssue("addressNumber", "Número residencial vazio."));
-  if (!data.neighborhood) warnings.push(makeIssue("neighborhood", "Bairro vazio."));
-  if (!data.city) warnings.push(makeIssue("city", "Cidade vazia."));
-  if (!data.state) warnings.push(makeIssue("state", "UF residencial vazia."));
-  if (!data.cep) warnings.push(makeIssue("cep", "CEP vazio."));
-  if (!data.howArrived) warnings.push(makeIssue("howArrived", "Origem de chegada na IPDA não selecionada."));
-  if (data.howArrivedOther && data.howArrived !== "Outro") {
-    warnings.push(makeIssue("howArrivedOther", "O texto de 'Outro' será ignorado enquanto a opção 'Outro' não estiver marcada."));
-  }
-  if (!data.arrivalSituation) warnings.push(makeIssue("arrivalSituation", "Situação de chegada não selecionada."));
-  if (!data.acceptedJesusWhere) warnings.push(makeIssue("acceptedJesusWhere", "Informe onde aceitou a Jesus."));
-  if (data.otherMinistry && data.acceptedJesusWhere !== "Outro ministério") {
-    warnings.push(makeIssue("otherMinistry", "O nome do ministério só entra no PDF quando 'Outro ministério' estiver marcado."));
-  }
-  if (!data.congregationAddress) warnings.push(makeIssue("congregationAddress", "Endereço da congregação vazio."));
-  if (!data.congregationNumber) warnings.push(makeIssue("congregationNumber", "Número da congregação vazio."));
-  if (!data.congregationNeighborhood) warnings.push(makeIssue("congregationNeighborhood", "Bairro da congregação vazio."));
-  if (!data.congregationCity) warnings.push(makeIssue("congregationCity", "Cidade da congregação vazia."));
-  if (!data.congregationState) warnings.push(makeIssue("congregationState", "UF da congregação vazia."));
-  if (!data.dirigenteName) warnings.push(makeIssue("dirigenteName", "Nome do dirigente vazio."));
-  if (!data.dirigentePhone) warnings.push(makeIssue("dirigentePhone", "Telefone do dirigente vazio."));
-  if (!data.sucursalName) warnings.push(makeIssue("sucursalName", "Sede sucursal vazia."));
-
-  for (const rule of PDF_TEXT_RULES) {
-    const value = data[rule.field];
-    if (!value || typeof value !== "string") continue;
-    if (measureTextWidth(value) > rule.maxWidth) {
-      warnings.push(makeIssue(rule.field, `${rule.label} está maior que a linha do PDF e pode sair abreviado.`));
+    const age = calculateAgeFromBrDate(data.birthDate);
+    if (age !== null) {
+      if (age >= 16 && age <= 18) bucket.idade16a18 += 1;
+      else if (age >= 19 && age <= 30) bucket.idade19a30 += 1;
+      else if (age >= 31) bucket.idade31a99 += 1;
     }
-  }
+  });
 
-  return { errors, warnings };
+  return REPORT_PORTE_ORDER.map((porte) => buckets.get(porte)!);
 }
 
-async function buildFilledPdfBytes(data: BaptismFormData) {
-  const normalizedData = normalizeFormForDocument(data);
-  const pdfBytes = await fetchPdfBytes(PDF_SOURCE_PATH);
-  const pdfDoc = await PDFDocument.load(pdfBytes);
+function wrapTextLines(text: string, maxWidth: number, measure: (t: string) => number): string[] {
+  const words = text.split(" ").filter(Boolean);
+  if (words.length === 0) return [];
 
-  const page = pdfDoc.getPages()[0];
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const lines: string[] = [];
+  let current = "";
 
-  const fontSize = 10.2;
-  const dateFontSize = 9.6;
+  words.forEach((word) => {
+    const candidate = current ? `${current} ${word}` : word;
+    if (current && measure(candidate) > maxWidth) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  });
+
+  if (current) lines.push(current);
+  return lines;
+}
+
+async function buildAggregateReportPdfBytes(aggregates: PorteAggregate[], header: ReportHeaderInfo) {
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([841.89, 595.28]); // A4 paisagem
+  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const color = rgb(0.05, 0.05, 0.05);
-  const markSize = 9;
+  const lineColor = rgb(0.35, 0.35, 0.35);
+  const { width } = page.getSize();
+  const margin = 30;
 
-  const drawTextLine = (text: string, x: number, y: number, maxWidth?: number, size: number = fontSize) => {
-    const value = (text || "").trim();
+  const text = (value: string, x: number, y: number, opts: { size?: number; bold?: boolean } = {}) => {
     if (!value) return;
-
-    const finalText =
-      typeof maxWidth === "number"
-        ? fitText(value, maxWidth, (t) => font.widthOfTextAtSize(t, size))
-        : value;
-
-    page.drawText(finalText, { x, y, size, font, color });
+    page.drawText(value, {
+      x,
+      y,
+      size: opts.size ?? 9.5,
+      font: opts.bold ? fontBold : fontRegular,
+      color,
+    });
   };
 
-  const drawX = (checked: boolean, x: number, y: number) => {
-    if (!checked) return;
-    page.drawText("X", { x, y, size: markSize, font, color });
-  };
+  let cursorY = page.getHeight() - margin;
 
-  const drawDateField = (
-    text: string,
-    pos: { dayX: number; monthX: number; yearX: number; y: number }
-  ) => {
-    const value = formatDateField(text);
-    const parts = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    if (!parts) return;
+  text("RELATÓRIO DE BATISMO", margin, cursorY, { size: 17, bold: true });
+  cursorY -= 26;
 
-    page.drawText(parts[1], { x: pos.dayX, y: pos.y, size: dateFontSize, font, color });
-    page.drawText(parts[2], { x: pos.monthX, y: pos.y, size: dateFontSize, font, color });
-    page.drawText(parts[3], { x: pos.yearX, y: pos.y, size: dateFontSize, font, color });
-  };
+  text(`Estado: ${header.estado || "-"}`, margin, cursorY, { size: 10 });
+  text(`UF: ${header.uf || "-"}`, margin + 300, cursorY, { size: 10 });
+  text(`Data do Batismo: ${header.dataBatismo || "-"}`, margin + 460, cursorY, { size: 10 });
+  cursorY -= 18;
 
-  const drawPhoto = async () => {
-    const photoSource = (normalizedData.photoDataUrl || "").trim();
-    if (!photoSource) return;
+  text(`Endereço: ${header.endereco || "-"}`, margin, cursorY, { size: 10 });
+  text(`N° ${header.numero || "-"}`, margin + 460, cursorY, { size: 10 });
+  text(`Bairro: ${header.bairro || "-"}`, margin + 540, cursorY, { size: 10 });
+  cursorY -= 18;
 
-    try {
-      const { bytes, mimeType } = await sourceToBytes(photoSource);
-      const lower = `${photoSource} ${mimeType}`.toLowerCase();
-      const photoImage = lower.includes("png")
-        ? await pdfDoc.embedPng(bytes)
-        : await pdfDoc.embedJpg(bytes);
-      const box = POS.photoBox;
-      page.drawImage(photoImage, { x: box.x, y: box.y, width: box.width, height: box.height });
-    } catch (err) {
-      console.error("Não foi possível inserir a foto no PDF.", err);
-    }
-  };
+  text(`Responsável: ${header.responsavel || "-"}`, margin, cursorY, { size: 10 });
+  text(`Tel.: ${header.telefoneResponsavel || "-"}`, margin + 340, cursorY, { size: 10 });
+  text(`Cep: ${header.cep || "-"}`, margin + 540, cursorY, { size: 10 });
+  cursorY -= 18;
 
-  // ===== Topo: ano e mês
-  const yearRaw = (normalizedData.baptismYear || "").trim();
-  const yearDigits = yearRaw.replace(/\D/g, "");
-  const year = yearDigits || yearRaw;
-  const last2 = year.length >= 2 ? year.slice(-2) : year;
-  drawTextLine(last2, POS.yearLast2.x, POS.yearLast2.y);
+  text(`Telefone IPDA: ${header.telefoneIpda || "-"}`, margin, cursorY, { size: 10 });
+  text(`Cidade: ${header.cidade || "-"}`, margin + 340, cursorY, { size: 10 });
+  cursorY -= 28;
 
-  drawX(normalizedData.baptismMonth === "Março", POS.monthMarchX.x, POS.monthMarchX.y);
-  drawX(normalizedData.baptismMonth === "Setembro", POS.monthSeptX.x, POS.monthSeptX.y);
+  const columns: Array<{ key: keyof PorteAggregate | "nomeIpda" | "dirigente" | "telefoneDirigente"; label: string; width: number }> = [
+    { key: "porte", label: "Porte", width: 66 },
+    { key: "nomeIpda", label: "Nome da IPDA", width: 118 },
+    { key: "total", label: "Qtd. de Batizados", width: 60 },
+    { key: "masculino", label: "Qtd. Masculino", width: 55 },
+    { key: "feminino", label: "Qtd. Feminino", width: 55 },
+    { key: "casados", label: "Casados", width: 48 },
+    { key: "solteiros", label: "Solteiros", width: 48 },
+    { key: "divorciados", label: "Divorciados", width: 52 },
+    { key: "viuvos", label: "Viúvos", width: 44 },
+    { key: "idade16a18", label: "De 16 a 18 anos", width: 58 },
+    { key: "idade19a30", label: "De 19 a 30 anos", width: 58 },
+    { key: "idade31a99", label: "De 31 a 99 anos", width: 58 },
+    { key: "dirigente", label: "Nome do Dirigente", width: 92 },
+    { key: "telefoneDirigente", label: "Telefone do dirigente", width: 82 },
+  ];
 
-  // ===== 1) Dados
-  drawTextLine(normalizedData.fullName, POS.fullName.x, POS.fullName.y, 350);
-  drawTextLine(formatPhoneField(normalizedData.phone), POS.phone.x, POS.phone.y, 95);
+  const tableWidth = columns.reduce((sum, col) => sum + col.width, 0);
+  const tableX = (width - tableWidth) / 2;
+  const headerHeight = 30;
+  const rowHeight = 22;
 
-  drawDateField(normalizedData.birthDate, POS.birthDate);
-  drawTextLine(normalizedData.rg, POS.rg.x, POS.rg.y, 120);
-  drawTextLine(normalizedData.cpf, POS.cpf.x, POS.cpf.y, 150);
+  let colX = tableX;
+  columns.forEach((col) => {
+    page.drawRectangle({
+      x: colX,
+      y: cursorY - headerHeight,
+      width: col.width,
+      height: headerHeight,
+      borderColor: lineColor,
+      borderWidth: 0.75,
+    });
 
-  drawX(normalizedData.maritalStatus.includes("Solteiro"), POS.maritalSolteiroX.x, POS.maritalSolteiroX.y);
-  drawX(normalizedData.maritalStatus.includes("Casado"), POS.maritalCasadoX.x, POS.maritalCasadoX.y);
-  drawX(normalizedData.maritalStatus.includes("Viúvo"), POS.maritalViuvoX.x, POS.maritalViuvoX.y);
-  drawX(
-    normalizedData.maritalStatus.toLowerCase().includes("divorciado"),
-    POS.maritalDivorciadoX.x,
-    POS.maritalDivorciadoX.y
-  );
-  drawDateField(normalizedData.maritalDate, POS.maritalDate);
+    const lines = wrapTextLines(col.label, col.width - 6, (t) => fontBold.widthOfTextAtSize(t, 7));
+    const startY = cursorY - headerHeight / 2 + ((lines.length - 1) * 8) / 2 + 2;
+    lines.forEach((line, index) => {
+      text(line, colX + 3, startY - index * 8, { size: 7, bold: true });
+    });
 
-  drawTextLine(normalizedData.address, POS.address.x, POS.address.y, 420);
-  drawTextLine(normalizedData.addressNumber, POS.addressNumber.x, POS.addressNumber.y, 50);
+    colX += col.width;
+  });
 
-  drawTextLine(normalizedData.neighborhood, POS.neighborhood.x, POS.neighborhood.y, 500);
+  cursorY -= headerHeight;
 
-  drawTextLine(normalizedData.city, POS.city.x, POS.city.y, 230);
-  drawTextLine(normalizedData.state, POS.state.x, POS.state.y, 50);
-  drawTextLine(normalizedData.cep, POS.cep.x, POS.cep.y, 120);
+  aggregates.forEach((row) => {
+    colX = tableX;
+    columns.forEach((col) => {
+      page.drawRectangle({
+        x: colX,
+        y: cursorY - rowHeight,
+        width: col.width,
+        height: rowHeight,
+        borderColor: lineColor,
+        borderWidth: 0.75,
+      });
 
-  const hasSpiritual = Boolean((normalizedData.spiritualParentName || "").trim());
-  drawX(!hasSpiritual, POS.spiritualNoX.x, POS.spiritualNoX.y);
-  drawX(hasSpiritual, POS.spiritualYesX.x, POS.spiritualYesX.y);
-  drawTextLine(normalizedData.spiritualParentName, POS.spiritualName.x, POS.spiritualName.y, 270);
+      const isBlankColumn = col.key === "nomeIpda" || col.key === "dirigente" || col.key === "telefoneDirigente";
+      const value = isBlankColumn ? "" : String(row[col.key as keyof PorteAggregate]);
+      text(value, colX + 4, cursorY - rowHeight + 7, { size: 8.5 });
 
-  drawX(normalizedData.howArrived === "Família", POS.howFamiliaX.x, POS.howFamiliaX.y);
-  drawX(normalizedData.howArrived === "Amigo(a)", POS.howAmigoX.x, POS.howAmigoX.y);
-  drawX(normalizedData.howArrived === "Visita no lar", POS.howVisitaX.x, POS.howVisitaX.y);
-  drawX(normalizedData.howArrived === "Folheto", POS.howFolhetoX.x, POS.howFolhetoX.y);
-  drawX(normalizedData.howArrived === "Rádio", POS.howRadioX.x, POS.howRadioX.y);
-  drawX(normalizedData.howArrived === "Outro", POS.howOutroX.x, POS.howOutroX.y);
-  drawTextLine(normalizedData.howArrivedOther, POS.howOtherText.x, POS.howOtherText.y, 140);
-
-  drawX(normalizedData.arrivalSituation === "Aceitou", POS.arrivalAceitouX.x, POS.arrivalAceitouX.y);
-  drawX(
-    normalizedData.arrivalSituation === "Reconciliou",
-    POS.arrivalReconciliouX.x,
-    POS.arrivalReconciliouX.y
-  );
-  drawX(normalizedData.arrivalSituation === "Uniu", POS.arrivalUniuX.x, POS.arrivalUniuX.y);
-
-  const acceptedIsIpda = (normalizedData.acceptedJesusWhere || "").toLowerCase().includes("ipda");
-  const acceptedIsOther =
-    !acceptedIsIpda && Boolean(normalizedData.acceptedJesusWhere || normalizedData.otherMinistry);
-
-  drawX(acceptedIsIpda, POS.acceptedIpdaX.x, POS.acceptedIpdaX.y);
-  drawX(acceptedIsOther, POS.acceptedOtherX.x, POS.acceptedOtherX.y);
-  drawTextLine(normalizedData.otherMinistry, POS.otherMinistry.x, POS.otherMinistry.y, 240);
-
-  // ===== 2) Congregação
-  drawTextLine(normalizedData.congregationAddress, POS.congAddress.x, POS.congAddress.y, 390);
-  drawTextLine(normalizedData.congregationNumber, POS.congNumber.x, POS.congNumber.y, 60);
-
-  drawTextLine(normalizedData.congregationNeighborhood, POS.congNeighborhood.x, POS.congNeighborhood.y, 230);
-  drawTextLine(normalizedData.congregationCity, POS.congCity.x, POS.congCity.y, 170);
-  drawTextLine(normalizedData.congregationState, POS.congState.x, POS.congState.y, 50);
-
-  drawTextLine(normalizedData.dirigenteName, POS.dirigenteName.x, POS.dirigenteName.y, 250);
-  drawTextLine(formatPhoneField(normalizedData.dirigentePhone), POS.dirigentePhone.x, POS.dirigentePhone.y, 120);
-
-  drawTextLine(normalizedData.sucursalName, POS.sucursalName.x, POS.sucursalName.y, 320);
-  await drawPhoto();
+      colX += col.width;
+    });
+    cursorY -= rowHeight;
+  });
 
   return await pdfDoc.save();
 }
 
-function makeBlobUrl(bytes: Uint8Array | ArrayBuffer) {
-  const blob = new Blob([bytes], { type: "application/pdf" });
-  return URL.createObjectURL(blob);
+async function buildAggregateReportXlsxBuffer(aggregates: PorteAggregate[], header: ReportHeaderInfo) {
+  const ExcelJS = (await import("exceljs")).default;
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Relatório de Batismo", {
+    pageSetup: { orientation: "landscape", fitToPage: true },
+  });
+
+  sheet.columns = [
+    { width: 14 }, // A Porte
+    { width: 26 }, // B Nome da IPDA
+    { width: 15 }, // C Qtd. de Batizados
+    { width: 13 }, // D Qtd. Masculino
+    { width: 12 }, // E Qtd. Feminino
+    { width: 10 }, // F Casados
+    { width: 10 }, // G Solteiros
+    { width: 11 }, // H Divorciados
+    { width: 9 }, // I Viúvos
+    { width: 12 }, // J De 16 a 18
+    { width: 12 }, // K De 19 a 30
+    { width: 12 }, // L De 31 a 99
+    { width: 20 }, // M Nome do dirigente
+    { width: 8 }, // N (merge M:O)
+    { width: 8 }, // O
+    { width: 18 }, // P Telefone do dirigente
+  ];
+
+  const thinBorder = {
+    top: { style: "thin" as const },
+    left: { style: "thin" as const },
+    bottom: { style: "thin" as const },
+    right: { style: "thin" as const },
+  };
+  const yellowFill = {
+    type: "pattern" as const,
+    pattern: "solid" as const,
+    fgColor: { argb: "FFFFFF00" },
+  };
+  const centerMiddle = { horizontal: "center" as const, vertical: "middle" as const, wrapText: true };
+
+  const setCell = (
+    coordinate: string,
+    value: string | number,
+    opts: { bold?: boolean; size?: number; color?: string; fill?: boolean; align?: boolean } = {}
+  ) => {
+    const cell = sheet.getCell(coordinate);
+    cell.value = value;
+    cell.font = { bold: opts.bold ?? true, size: opts.size ?? 11, color: opts.color ? { argb: opts.color } : undefined };
+    if (opts.align !== false) cell.alignment = centerMiddle;
+    cell.border = thinBorder;
+    if (opts.fill) cell.fill = yellowFill;
+    return cell;
+  };
+
+  // Título
+  sheet.mergeCells("A1:P1");
+  setCell("A1", "RELATÓRIO DE BATISMO", { size: 20, fill: true });
+  sheet.getRow(1).height = 28;
+
+  // Identificação
+  sheet.mergeCells("A2:F2");
+  setCell("A2", `Estado: ${header.estado || ""}`, { size: 14, align: false });
+  sheet.mergeCells("H2:L2");
+  setCell("H2", `UF: ${header.uf || ""}`, { size: 14, align: false });
+  sheet.mergeCells("M2:P2");
+  setCell("M2", `Data do Batismo: ${header.dataBatismo || ""}`, { size: 14, align: false });
+
+  sheet.mergeCells("A3:P3");
+  setCell(
+    "A3",
+    "ASSINALE AQUI O PORTE DE SUA IGREJA: Local (  )  Setorial (  )  Estadual (  )  Regional (  )  Casa de Oração (  )  Central (  )",
+    { size: 14, color: "FFFF0000", align: false }
+  );
+  sheet.getRow(3).height = 20;
+
+  sheet.mergeCells("A4:L4");
+  setCell("A4", `Endereço: ${header.endereco || ""}`, { size: 11, align: false });
+  setCell("M4", `N° ${header.numero || ""}`, { size: 11, align: false });
+  sheet.mergeCells("N4:P4");
+  setCell("N4", `Bairro: ${header.bairro || ""}`, { size: 11, align: false });
+
+  sheet.mergeCells("A5:H5");
+  setCell("A5", `Responsável: ${header.responsavel || ""}`, { size: 11, align: false });
+  sheet.mergeCells("I5:J5");
+  setCell("I5", `Tel.: ${header.telefoneResponsavel || ""}`, { size: 11, align: false });
+  sheet.mergeCells("N5:P5");
+  setCell("N5", `Cep: ${header.cep || ""}`, { size: 11, align: false });
+
+  sheet.mergeCells("A6:M6");
+  setCell("A6", `Telefone IPDA: ${header.telefoneIpda || ""}`, { size: 11, align: false });
+  sheet.mergeCells("N6:P6");
+  setCell("N6", `Cidade: ${header.cidade || ""}`, { size: 11, align: false });
+
+  // Cabeçalho da tabela
+  sheet.mergeCells("A7:C7");
+  setCell("A7", "", { fill: true, size: 12 });
+  sheet.mergeCells("D7:E7");
+  setCell("D7", "SEXO", { fill: true, size: 13 });
+  sheet.mergeCells("F7:I7");
+  setCell("F7", "ESTADO CIVIL", { fill: true, size: 13 });
+  sheet.mergeCells("J7:L7");
+  setCell("J7", "IDADE DOS BATIZADOS", { fill: true, size: 13 });
+  sheet.mergeCells("M7:P7");
+  setCell("M7", "", { fill: true, size: 12 });
+  sheet.getRow(7).height = 20;
+
+  const headerCells: Array<[string, string]> = [
+    ["A8", "Porte"],
+    ["B8", "Nome da IPDA"],
+    ["C8", "Qtd. de Batizados"],
+    ["D8", "Qtd. Masculino"],
+    ["E8", "Qtd. Feminino"],
+    ["F8", "Casados"],
+    ["G8", "Solteiros"],
+    ["H8", "Divorciados"],
+    ["I8", "Viúvos"],
+    ["J8", "De 16 a 18 anos"],
+    ["K8", "De 19 a 30 anos"],
+    ["L8", "De 31 a 99 anos"],
+  ];
+  headerCells.forEach(([coord, label]) => setCell(coord, label, { size: 11 }));
+  sheet.mergeCells("M8:O8");
+  setCell("M8", "Nome do Dirigente que levou os candidatos", { size: 11 });
+  setCell("P8", "Telefone do dirigente", { size: 11 });
+  sheet.getRow(8).height = 32;
+
+  // Linhas de dados por Reclassificação
+  let rowIndex = 9;
+  const totals = { total: 0, masculino: 0, feminino: 0, casados: 0, solteiros: 0, divorciados: 0, viuvos: 0, idade16a18: 0, idade19a30: 0, idade31a99: 0 };
+
+  aggregates.forEach((row) => {
+    setCell(`A${rowIndex}`, row.porte, { bold: false });
+    setCell(`B${rowIndex}`, "", { bold: false });
+    setCell(`C${rowIndex}`, row.total, { bold: false });
+    setCell(`D${rowIndex}`, row.masculino, { bold: false });
+    setCell(`E${rowIndex}`, row.feminino, { bold: false });
+    setCell(`F${rowIndex}`, row.casados, { bold: false });
+    setCell(`G${rowIndex}`, row.solteiros, { bold: false });
+    setCell(`H${rowIndex}`, row.divorciados, { bold: false });
+    setCell(`I${rowIndex}`, row.viuvos, { bold: false });
+    setCell(`J${rowIndex}`, row.idade16a18, { bold: false });
+    setCell(`K${rowIndex}`, row.idade19a30, { bold: false });
+    setCell(`L${rowIndex}`, row.idade31a99, { bold: false });
+    sheet.mergeCells(`M${rowIndex}:O${rowIndex}`);
+    setCell(`M${rowIndex}`, "", { bold: false });
+    setCell(`P${rowIndex}`, "", { bold: false });
+
+    totals.total += row.total;
+    totals.masculino += row.masculino;
+    totals.feminino += row.feminino;
+    totals.casados += row.casados;
+    totals.solteiros += row.solteiros;
+    totals.divorciados += row.divorciados;
+    totals.viuvos += row.viuvos;
+    totals.idade16a18 += row.idade16a18;
+    totals.idade19a30 += row.idade19a30;
+    totals.idade31a99 += row.idade31a99;
+
+    rowIndex += 1;
+  });
+
+  // Linha de totais
+  sheet.mergeCells(`A${rowIndex}:B${rowIndex}`);
+  setCell(`A${rowIndex}`, "TOTAL DE BATIZADOS", { size: 11 });
+  setCell(`C${rowIndex}`, totals.total, { size: 11 });
+  setCell(`D${rowIndex}`, totals.masculino, { size: 11 });
+  setCell(`E${rowIndex}`, totals.feminino, { size: 11 });
+  setCell(`F${rowIndex}`, totals.casados, { size: 11 });
+  setCell(`G${rowIndex}`, totals.solteiros, { size: 11 });
+  setCell(`H${rowIndex}`, totals.divorciados, { size: 11 });
+  setCell(`I${rowIndex}`, totals.viuvos, { size: 11 });
+  setCell(`J${rowIndex}`, totals.idade16a18, { size: 11 });
+  setCell(`K${rowIndex}`, totals.idade19a30, { size: 11 });
+  setCell(`L${rowIndex}`, totals.idade31a99, { size: 11 });
+  sheet.mergeCells(`M${rowIndex}:O${rowIndex}`);
+  setCell(`M${rowIndex}`, "", { size: 11 });
+  setCell(`P${rowIndex}`, "", { size: 11 });
+  rowIndex += 2;
+
+  sheet.mergeCells(`A${rowIndex}:P${rowIndex}`);
+  setCell(`A${rowIndex}`, totals.total, { size: 20, color: "FFFF0000" });
+  rowIndex += 2;
+
+  sheet.mergeCells(`A${rowIndex}:P${rowIndex + 2}`);
+  setCell(
+    `A${rowIndex}`,
+    "Por favor, a planilha deverá ser preenchida e enviada no 1º dia ÚTIL APÓS O BATISMO para ser apresentada à Diretoria neste mesmo dia.",
+    { size: 14, color: "FFFF0000" }
+  );
+
+  return (await workbook.xlsx.writeBuffer()) as ArrayBuffer;
+}
+
+function downloadBatismoRecordsCsv(records: BaptismRecord[]) {
+  const headers = [
+    "Nome completo",
+    "CPF",
+    "Sexo",
+    "Data de nascimento",
+    "Estado civil",
+    "Reclassificação",
+    "Congregação",
+    "Cidade da congregação",
+    "Dirigente",
+    "Telefone do dirigente",
+    "Mês do batismo",
+    "Ano do batismo",
+    "Data de cadastro",
+  ];
+
+  const rows = records.map((record) => {
+    const data = record.formData;
+    return [
+      record.fullName,
+      record.cpf,
+      data.gender || "",
+      data.birthDate || "",
+      data.maritalStatus || "",
+      data.sucursalName || "",
+      record.congregation || "",
+      data.congregationCity || "",
+      data.dirigenteName || "",
+      data.dirigentePhone || "",
+      record.baptismMonth || "",
+      record.baptismYear || "",
+      formatDateTime(record.createdAt),
+    ];
+  });
+
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+
+  triggerBlobDownload(
+    "﻿" + csvContent,
+    "text/csv;charset=utf-8;",
+    `batismo-cadastros-${new Date().toISOString().split("T")[0]}.csv`
+  );
+}
+
+function mostCommonValue(values: Array<string | undefined>): string {
+  const counts = new Map<string, number>();
+
+  values.forEach((value) => {
+    const normalized = collapseWhitespace(value);
+    if (!normalized) return;
+    counts.set(normalized, (counts.get(normalized) ?? 0) + 1);
+  });
+
+  let best = "";
+  let bestCount = 0;
+  counts.forEach((count, value) => {
+    if (count > bestCount) {
+      best = value;
+      bestCount = count;
+    }
+  });
+
+  return best;
 }
 
 export default function BatismoPage() {
   const [records, setRecords] = useState<BaptismRecord[]>([]);
+  const [pendingSubmissions, setPendingSubmissions] = useState<BaptismRecord[]>([]);
+  const [loadingPending, setLoadingPending] = useState(true);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<BaptismFormData>(createEmptyForm);
   const [filters, setFilters] = useState({
@@ -1279,6 +807,22 @@ export default function BatismoPage() {
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
   const lastPreviewUrlRef = useRef<string | null>(null);
+  const [reportPanelOpen, setReportPanelOpen] = useState(false);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [isGeneratingXlsx, setIsGeneratingXlsx] = useState(false);
+  const [reportHeader, setReportHeader] = useState<ReportHeaderInfo>({
+    estado: "Amazonas",
+    uf: "",
+    dataBatismo: "",
+    endereco: "",
+    numero: "",
+    bairro: "",
+    responsavel: "",
+    telefoneResponsavel: "",
+    cep: "",
+    telefoneIpda: "",
+    cidade: "",
+  });
 
   const orderedRecords = useMemo(
     () => [...records].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
@@ -1441,6 +985,31 @@ export default function BatismoPage() {
         if (active) {
           alert("Não foi possível carregar os cadastros de batismo no Firebase.");
         }
+      }
+    };
+
+    void run();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const run = async () => {
+      try {
+        const pending = await loadPendingSubmissions();
+        if (!active) return;
+        setPendingSubmissions(pending);
+      } catch (error) {
+        console.error(error);
+        if (active) {
+          alert("Não foi possível carregar os cadastros pendentes do link público.");
+        }
+      } finally {
+        if (active) setLoadingPending(false);
       }
     };
 
@@ -1919,6 +1488,48 @@ export default function BatismoPage() {
     }
   }
 
+  async function handleApprovePending(pending: BaptismRecord) {
+    if (approvingId || rejectingId) return;
+    if (!confirm(`Aprovar o cadastro público de ${pending.fullName} e adicioná-lo à lista de batizados?`)) return;
+
+    setApprovingId(pending.id);
+    try {
+      // Os arquivos enviados pelo link público permanecem em BAPTISM_PENDING_STORAGE_ROOT;
+      // não é necessário copiá-los, o registro aprovado só passa a referenciar o mesmo caminho.
+      const approvedRecord = buildRecordFromForm(pending.formData, {
+        id: createRecordId(),
+        createdAt: pending.createdAt,
+      });
+
+      await saveRecordToFirebase(approvedRecord);
+      await deleteDoc(doc(db, BAPTISM_PENDING_COLLECTION, pending.id));
+
+      setRecords((prev) => [approvedRecord, ...prev]);
+      setPendingSubmissions((prev) => prev.filter((item) => item.id !== pending.id));
+    } catch (err) {
+      console.error(err);
+      alert("Não foi possível aprovar este cadastro. Tente novamente.");
+    } finally {
+      setApprovingId(null);
+    }
+  }
+
+  async function handleRejectPending(pending: BaptismRecord) {
+    if (approvingId || rejectingId) return;
+    if (!confirm(`Rejeitar e excluir o cadastro público de ${pending.fullName}? Essa ação não pode ser desfeita.`)) return;
+
+    setRejectingId(pending.id);
+    try {
+      await deletePendingSubmission(pending);
+      setPendingSubmissions((prev) => prev.filter((item) => item.id !== pending.id));
+    } catch (err) {
+      console.error(err);
+      alert("Não foi possível rejeitar este cadastro. Tente novamente.");
+    } finally {
+      setRejectingId(null);
+    }
+  }
+
   function handleEditRecord(record: BaptismRecord) {
     closeCamera();
     setForm(normalizeFormData(record.formData));
@@ -2012,12 +1623,170 @@ export default function BatismoPage() {
     setPreviewError("");
   }
 
+  function handleDownloadCsv() {
+    downloadBatismoRecordsCsv(filteredRecords);
+  }
+
+  function openReportPanel() {
+    setReportHeader((prev) => ({
+      ...prev,
+      dataBatismo: prev.dataBatismo || (filters.month && filters.year ? `${filters.month}/${filters.year}` : ""),
+      endereco: prev.endereco || mostCommonValue(filteredRecords.map((r) => r.formData.congregationAddress)),
+      numero: prev.numero || mostCommonValue(filteredRecords.map((r) => r.formData.congregationNumber)),
+      bairro: prev.bairro || mostCommonValue(filteredRecords.map((r) => r.formData.congregationNeighborhood)),
+      cidade: prev.cidade || mostCommonValue(filteredRecords.map((r) => r.formData.congregationCity)),
+      uf: prev.uf || mostCommonValue(filteredRecords.map((r) => r.formData.congregationState)),
+      responsavel: prev.responsavel || mostCommonValue(filteredRecords.map((r) => r.formData.dirigenteName)),
+      telefoneResponsavel:
+        prev.telefoneResponsavel || mostCommonValue(filteredRecords.map((r) => r.formData.dirigentePhone)),
+    }));
+    setReportPanelOpen(true);
+  }
+
+  async function handleDownloadAggregateReport() {
+    setIsGeneratingReport(true);
+    try {
+      const aggregates = buildPorteAggregates(filteredRecords);
+      const bytes = await buildAggregateReportPdfBytes(aggregates, reportHeader);
+      triggerBlobDownload(
+        bytes,
+        "application/pdf",
+        `relatorio-batismo-${new Date().toISOString().split("T")[0]}.pdf`
+      );
+      setReportPanelOpen(false);
+    } catch (error) {
+      console.error(error);
+      alert("Não foi possível gerar o relatório em PDF.");
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  }
+
+  async function handleDownloadAggregateXlsx() {
+    setIsGeneratingXlsx(true);
+    try {
+      const aggregates = buildPorteAggregates(filteredRecords);
+      const buffer = await buildAggregateReportXlsxBuffer(aggregates, reportHeader);
+      triggerBlobDownload(
+        buffer,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        `relatorio-batismo-${new Date().toISOString().split("T")[0]}.xlsx`
+      );
+      setReportPanelOpen(false);
+    } catch (error) {
+      console.error(error);
+      alert("Não foi possível gerar o relatório em Excel.");
+    } finally {
+      setIsGeneratingXlsx(false);
+    }
+  }
+
   // ===========================
   // UI
   // ===========================
   if (!showForm) {
     return (
       <div className="mx-auto w-full max-w-6xl space-y-4">
+        <Card className="border-blue-200 bg-blue-50/40">
+          <CardHeader>
+            <CardTitle className="text-lg">Link público de cadastro</CardTitle>
+            <CardDescription>
+              Compartilhe este link com os membros para que eles preencham o cadastro de batismo pelo celular.
+              Cada envio fica pendente aqui até você aprovar ou rejeitar.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-2">
+            <code className="rounded bg-white px-3 py-2 text-sm text-slate-800 shadow-sm">
+              {typeof window !== "undefined" ? `${window.location.origin}/cadastro-batismo` : "/cadastro-batismo"}
+            </code>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const url = `${window.location.origin}/cadastro-batismo`;
+                navigator.clipboard?.writeText(url);
+                alert("Link copiado!");
+              }}
+            >
+              Copiar link
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className={pendingSubmissions.length > 0 ? "border-amber-300 bg-amber-50/50" : undefined}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              Cadastros pendentes do link público
+              {pendingSubmissions.length > 0 && (
+                <Badge className="bg-amber-500 text-white hover:bg-amber-500">{pendingSubmissions.length}</Badge>
+              )}
+            </CardTitle>
+            <CardDescription>
+              Cadastros enviados pelos membros pelo link público, aguardando revisão antes de entrar na lista
+              oficial de batizados.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loadingPending ? (
+              <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                Carregando cadastros pendentes...
+              </div>
+            ) : pendingSubmissions.length === 0 ? (
+              <div className="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground">
+                Nenhum cadastro pendente no momento.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {pendingSubmissions.map((pending) => (
+                  <div
+                    key={pending.id}
+                    className="flex flex-col gap-3 rounded-lg border bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-slate-900">{pending.fullName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {pending.congregation} · Enviado em {formatDateTime(pending.createdAt)}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={approvingId === pending.id || rejectingId === pending.id}
+                        onClick={() => handleRejectPending(pending)}
+                        className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                      >
+                        {rejectingId === pending.id ? (
+                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="mr-2 h-4 w-4" />
+                        )}
+                        Rejeitar
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={approvingId === pending.id || rejectingId === pending.id}
+                        onClick={() => handleApprovePending(pending)}
+                      >
+                        {approvingId === pending.id ? (
+                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Plus className="mr-2 h-4 w-4" />
+                        )}
+                        Aprovar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -2261,6 +2030,185 @@ export default function BatismoPage() {
                   <p className="mt-2 text-xs text-muted-foreground">
                     Exibindo {filteredRecords.length} de {orderedRecords.length} cadastro(s).
                   </p>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+                    <span className="text-xs font-medium text-slate-700">Exportação:</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={filteredRecords.length === 0}
+                      onClick={handleDownloadCsv}
+                    >
+                      <FileDown className="mr-2 h-4 w-4" />
+                      Baixar CSV
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={filteredRecords.length === 0}
+                      onClick={() => (reportPanelOpen ? setReportPanelOpen(false) : openReportPanel())}
+                    >
+                      <FileText className="mr-2 h-4 w-4" />
+                      Relatório (PDF/Excel)
+                    </Button>
+                  </div>
+
+                  {reportPanelOpen && (
+                    <div className="mt-3 space-y-3 rounded-lg border border-slate-300 bg-white p-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">
+                          Relatório de Batismo agrupado por Reclassificação
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Confira os dados abaixo antes de gerar o arquivo. Os {filteredRecords.length} cadastro(s)
+                          exibido(s) pelos filtros serão somados por Reclassificação (Local, Setorial, Estadual,
+                          Regional, Casa de Oração e Central), no mesmo padrão do relatório oficial de batismo.
+                        </p>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <div>
+                          <label className="text-xs font-medium">Estado</label>
+                          <input
+                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"
+                            value={reportHeader.estado}
+                            onChange={(e) => setReportHeader((prev) => ({ ...prev, estado: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium">UF</label>
+                          <input
+                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"
+                            maxLength={2}
+                            value={reportHeader.uf}
+                            onChange={(e) =>
+                              setReportHeader((prev) => ({ ...prev, uf: formatStateField(e.target.value) }))
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium">Data do Batismo</label>
+                          <input
+                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"
+                            placeholder="dd/mm/aaaa"
+                            value={reportHeader.dataBatismo}
+                            onChange={(e) => setReportHeader((prev) => ({ ...prev, dataBatismo: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium">Endereço</label>
+                          <input
+                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"
+                            value={reportHeader.endereco}
+                            onChange={(e) => setReportHeader((prev) => ({ ...prev, endereco: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium">Número</label>
+                          <input
+                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"
+                            value={reportHeader.numero}
+                            onChange={(e) => setReportHeader((prev) => ({ ...prev, numero: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium">Bairro</label>
+                          <input
+                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"
+                            value={reportHeader.bairro}
+                            onChange={(e) => setReportHeader((prev) => ({ ...prev, bairro: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium">Cidade</label>
+                          <input
+                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"
+                            value={reportHeader.cidade}
+                            onChange={(e) => setReportHeader((prev) => ({ ...prev, cidade: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium">CEP</label>
+                          <input
+                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"
+                            value={reportHeader.cep}
+                            onChange={(e) => setReportHeader((prev) => ({ ...prev, cep: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium">Responsável</label>
+                          <input
+                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"
+                            value={reportHeader.responsavel}
+                            onChange={(e) => setReportHeader((prev) => ({ ...prev, responsavel: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium">Telefone do responsável</label>
+                          <input
+                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"
+                            value={reportHeader.telefoneResponsavel}
+                            onChange={(e) =>
+                              setReportHeader((prev) => ({ ...prev, telefoneResponsavel: e.target.value }))
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium">Telefone IPDA</label>
+                          <input
+                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"
+                            value={reportHeader.telefoneIpda}
+                            onChange={(e) => setReportHeader((prev) => ({ ...prev, telefoneIpda: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Button type="button" size="sm" variant="outline" onClick={() => setReportPanelOpen(false)}>
+                          Cancelar
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={isGeneratingXlsx}
+                          onClick={handleDownloadAggregateXlsx}
+                        >
+                          {isGeneratingXlsx ? (
+                            <>
+                              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                              Gerando...
+                            </>
+                          ) : (
+                            <>
+                              <FileDown className="mr-2 h-4 w-4" />
+                              Gerar e baixar Excel
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={isGeneratingReport}
+                          onClick={handleDownloadAggregateReport}
+                        >
+                          {isGeneratingReport ? (
+                            <>
+                              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                              Gerando...
+                            </>
+                          ) : (
+                            <>
+                              <FileText className="mr-2 h-4 w-4" />
+                              Gerar e baixar PDF
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {filteredRecords.length === 0 ? (
@@ -2571,6 +2519,22 @@ export default function BatismoPage() {
                     Abra a câmera para tirar foto ao vivo, ou envie um arquivo da galeria.
                   </p>
                 )}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium">Sexo</label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {(["Masculino", "Feminino"] as const).map((v) => (
+                  <Button
+                    key={v}
+                    type="button"
+                    variant={form.gender === v ? "default" : "outline"}
+                    onClick={() => updateField("gender", toggleChoice(form.gender, v))}
+                  >
+                    {v}
+                  </Button>
+                ))}
               </div>
             </div>
 
@@ -2913,12 +2877,19 @@ export default function BatismoPage() {
             </div>
 
             <div>
-              <label className="text-xs font-medium">Sede sucursal</label>
-              <input
+              <label className="text-xs font-medium">Reclassificação</label>
+              <select
                 className={getInputClass("sucursalName")}
                 value={form.sucursalName}
-                onChange={(e) => updateField("sucursalName", e.target.value)}
-              />
+                onChange={(e) => updateField("sucursalName", e.target.value as BaptismFormData["sucursalName"])}
+              >
+                <option value="">Selecione...</option>
+                {RECLASSIFICATION_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

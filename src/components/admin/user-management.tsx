@@ -360,7 +360,8 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
     }
 
     const token = await authUser.getIdToken();
-    const response = await fetch('/api/admin/users', {
+    const endpoint = process.env.NEXT_PUBLIC_ADMIN_USERS_API_URL || '/api/admin/users';
+    const response = await fetch(endpoint, {
       method,
       cache: 'no-store',
       headers: {
