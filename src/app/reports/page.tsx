@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePeriodReports } from "@/hooks/use-reports";
 import { getAttendanceHistoryByCpf, syncMemberProfile, updateAttendanceRecord } from "@/lib/actions";
-import { getMemberDirectoryRecords } from "@/lib/member-data";
+import { getMemberDirectoryRecords, isSameManausDay } from "@/lib/member-data";
 import type { AttendanceRecord } from "@/lib/types";
 import { Edit, FileDown, QrCode, Save, X } from "lucide-react";
 import QRCode from 'qrcode';
@@ -51,6 +51,10 @@ function getManausDateString(date: Date = new Date()) {
     month: "2-digit",
     day: "2-digit",
   }).format(date);
+}
+
+function formatManausDate(date: Date = new Date(), options: Intl.DateTimeFormatOptions = {}) {
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: MANAUS_TIME_ZONE, ...options }).format(date);
 }
 
 function isInManausMonth(value: Date | string | undefined, monthFilter: string) {
@@ -320,10 +324,8 @@ export default function ReportsPage() {
         
         const recordDate = new Date(r.timestamp);
         const filterDate = new Date(targetDate + "T00:00:00");
-        const recordDateStr = recordDate.toLocaleDateString("pt-BR");
-        const filterDateStr = filterDate.toLocaleDateString("pt-BR");
-        
-        if (recordDateStr === filterDateStr && r.cpf) {
+
+        if (isSameManausDay(recordDate, filterDate) && r.cpf) {
           registeredCPFs.add(r.cpf);
         }
       });
@@ -379,7 +381,7 @@ export default function ReportsPage() {
         if (!r.timestamp) return false;
         const recordDate = new Date(r.timestamp);
         const filterDate = new Date(dateFilter + "T00:00:00");
-        return recordDate.toLocaleDateString("pt-BR") === filterDate.toLocaleDateString("pt-BR");
+        return isSameManausDay(recordDate, filterDate);
       });
     }
 
@@ -600,7 +602,7 @@ export default function ReportsPage() {
           <body>
             <h1>RELATÓRIO DE PRESENÇA</h1>
             <div class="meta">
-              <p>Data de Geração: ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+              <p>Data de Geração: ${formatManausDate(new Date(), { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
               <p>Total de Registros: ${filteredRecords.length}</p>
             </div>
             <table>
@@ -698,7 +700,7 @@ export default function ReportsPage() {
           <body>
             <h1>RESUMO ESTATÍSTICO DE PRESENÇA</h1>
             <div class="meta">
-              <p>Gerado em: ${new Date().toLocaleDateString('pt-BR')}</p>
+              <p>Gerado em: ${formatManausDate()}</p>
             </div>
             <div class="stats">
               <div class="stat-item">
@@ -766,7 +768,7 @@ export default function ReportsPage() {
   function exportFilteredData() {
     if (!reportData || filteredRecords.length === 0) return;
     const headers = [
-      `RELATÓRIO FILTRADO - ${new Date().toLocaleDateString('pt-BR')}`,
+      `RELATÓRIO FILTRADO - ${formatManausDate()}`,
       `Filtros: ${search ? `Busca: ${search}` : ''}`,
       `Total: ${filteredRecords.length} registros`,
       "",
@@ -797,7 +799,7 @@ export default function ReportsPage() {
   function exportSummaryData() {
     if (!reportData) return;
     const headers = [
-      `RESUMO ESTATÍSTICO - ${new Date().toLocaleDateString('pt-BR')}`,
+      `RESUMO ESTATÍSTICO - ${formatManausDate()}`,
       `Total: ${reportData.summary.total} registros`,
       `Presentes: ${reportData.summary.present}`,
       `Justificados: ${reportData.summary.justified}`,
@@ -846,7 +848,7 @@ export default function ReportsPage() {
               ? `${startDateFilter ? new Date(startDateFilter + "T00:00:00").toLocaleDateString("pt-BR") : "início livre"} → ${endDateFilter ? new Date(endDateFilter + "T00:00:00").toLocaleDateString("pt-BR") : "sem fim"}`
               : dateFilter
                 ? new Date(dateFilter + "T00:00:00").toLocaleDateString("pt-BR")
-                : `hoje (${new Date().toLocaleDateString("pt-BR")})`}
+                : `hoje (${formatManausDate()})`}
         </strong>{" "}
         — use os filtros de mês, data ou intervalo abaixo para consultar outros períodos.
       </div>

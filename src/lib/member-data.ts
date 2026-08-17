@@ -134,7 +134,7 @@ function getRecordSortTime(record: AttendanceRecord) {
   );
 }
 
-function isSameManausDay(left: Date, right: Date) {
+export function isSameManausDay(left: Date, right: Date) {
   const leftManaus = new Date(left.toLocaleString("en-US", { timeZone: MANAUS_TIME_ZONE }));
   const rightManaus = new Date(right.toLocaleString("en-US", { timeZone: MANAUS_TIME_ZONE }));
 
