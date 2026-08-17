@@ -44,6 +44,15 @@ function getManausYearMonth(date: Date) {
   };
 }
 
+function getManausDateString(date: Date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: MANAUS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
 function isInManausMonth(value: Date | string | undefined, monthFilter: string) {
   if (!monthFilter || !value) return true;
 
@@ -302,7 +311,7 @@ export default function ReportsPage() {
 
     // 🚨 LÓGICA ESPECIAL: Se filtro "Ausente" está ativo, mostrar MEMBROS SEM registro no dia
     if (statusFilter === "Ausente") {
-      const targetDate = dateFilter || new Date().toISOString().split('T')[0];
+      const targetDate = dateFilter || getManausDateString();
       
       // CPFs dos membros que JÁ registraram presença no dia específico
       const registeredCPFs = new Set<string>();
@@ -777,7 +786,7 @@ export default function ReportsPage() {
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute("download", `relatorio-filtrado-${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `relatorio-filtrado-${getManausDateString()}.csv`);
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
@@ -800,7 +809,7 @@ export default function ReportsPage() {
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute("download", `resumo-estatistico-${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `resumo-estatistico-${getManausDateString()}.csv`);
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
