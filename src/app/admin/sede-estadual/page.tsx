@@ -20,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { SedeEstadualBirthdays } from "@/components/admin/sede-estadual-birthdays";
 import { db, storage } from "@/lib/firebase";
 import {
   collection,
@@ -65,6 +66,20 @@ const CHURCH_POSITIONS = [
   "Diácono",
   "Presbítero",
   "Pastor",
+  "2º Pastor",
+  "3º Pastor",
+  "Conselheiro(a) Financeiro(a)",
+  "Conselheiro(a) de Expansão",
+  "Conselheiro(a) Patrimonial",
+  "Líder Galileu (a)",
+  "Auxiliar Galileu (a)",
+  "Líder Adote uma Alma (a)",
+  "Auxiliar Adote uma Alma (a)",
+  "Coordenador(a) ETDA",
+  "Professor(a) ETDA",
+  "Atendente de Livraria",
+  "Técnico(a) de Som",
+  "Controlador(a) de Entrada",
 ] as const;
 type ChurchPosition = (typeof CHURCH_POSITIONS)[number];
 
@@ -99,7 +114,7 @@ type SedeEstadualFormData = {
   photoStoragePath?: string;
 };
 
-type SedeEstadualRecord = {
+export type SedeEstadualRecord = {
   id: string;
   fullName: string;
   cpf: string;
@@ -403,6 +418,66 @@ function buildRecordFromForm(
   };
 }
 
+function csvCell(value?: string) {
+  return `"${(value || "").replace(/"/g, '""')}"`;
+}
+
+function exportSedeEstadualToCSV(records: SedeEstadualRecord[]) {
+  const headers = [
+    "Nome",
+    "CPF",
+    "Cargo",
+    "Telefone",
+    "Cidade",
+    "Estado",
+    "Pai",
+    "Mãe",
+    "Estado Civil",
+    "Nascimento",
+    "RG",
+    "Nacionalidade",
+    "Batismo",
+    "Natural de",
+    "Estado Natural",
+    "Cadastrado em",
+  ];
+
+  const rows = records.map((record) => {
+    const d = record.formData;
+    return [
+      record.fullName,
+      record.cpf,
+      record.churchPosition,
+      d.phone,
+      d.city,
+      d.state,
+      d.fatherName,
+      d.motherName,
+      d.maritalStatus,
+      d.birthDate,
+      d.rg,
+      d.nationality,
+      d.baptismDate,
+      d.birthplaceCity,
+      d.birthplaceState,
+      formatDateTime(record.createdAt),
+    ]
+      .map(csvCell)
+      .join(",");
+  });
+
+  const csvContent = [headers.map(csvCell).join(","), ...rows].join("\n");
+  const blob = new Blob(["﻿" + csvContent], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.setAttribute("download", `sede-estadual-${new Date().toISOString().split("T")[0]}.csv`);
+  link.style.visibility = "hidden";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
+
 function formatDateTime(value?: string) {
   if (!value) return "-";
   const date = new Date(value);
@@ -594,6 +669,77 @@ async function buildSedeEstadualPdfBytes(record: SedeEstadualRecord): Promise<Ui
   return pdfDoc.save();
 }
 
+const LIST_PAGE_WIDTH = 841.89; // A4 landscape
+const LIST_PAGE_HEIGHT = 595.28;
+const LIST_ROWS_PER_PAGE = 20;
+const LIST_COLUMNS: { label: string; width: number; get: (r: SedeEstadualRecord) => string }[] = [
+  { label: "Nome", width: 190, get: (r) => r.fullName },
+  { label: "Cargo", width: 100, get: (r) => r.churchPosition },
+  { label: "Telefone", width: 110, get: (r) => r.formData.phone },
+  { label: "Cidade/UF", width: 140, get: (r) => [r.city, r.formData.state].filter(Boolean).join("/") },
+  { label: "CPF", width: 110, get: (r) => r.cpf },
+  { label: "Cadastrado em", width: 130, get: (r) => formatDateTime(r.createdAt) },
+];
+
+async function buildSedeEstadualListPdfBytes(records: SedeEstadualRecord[]): Promise<Uint8Array> {
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  const textColor = rgb(0.05, 0.05, 0.05);
+  const lineColor = rgb(0.55, 0.55, 0.55);
+  const headerColor = rgb(0.25, 0.25, 0.25);
+
+  const marginX = 30;
+  const tableTop = 505;
+  const rowHeight = 20;
+  const today = new Date().toLocaleDateString("pt-BR");
+
+  const chunks: SedeEstadualRecord[][] = [];
+  for (let i = 0; i < records.length; i += LIST_ROWS_PER_PAGE) {
+    chunks.push(records.slice(i, i + LIST_ROWS_PER_PAGE));
+  }
+  if (chunks.length === 0) chunks.push([]);
+
+  chunks.forEach((chunk, pageIndex) => {
+    const page = pdfDoc.addPage([LIST_PAGE_WIDTH, LIST_PAGE_HEIGHT]);
+
+    page.drawText("IPDA - Cadastros da Sede Estadual", {
+      x: marginX, y: 555, size: 14, font: boldFont, color: textColor,
+    });
+    page.drawText(`Gerado em ${today} - ${records.length} cadastro(s) - pagina ${pageIndex + 1} de ${chunks.length}`, {
+      x: marginX, y: 538, size: 9, font, color: headerColor,
+    });
+    page.drawLine({ start: { x: marginX, y: 528 }, end: { x: LIST_PAGE_WIDTH - marginX, y: 528 }, thickness: 1, color: lineColor });
+
+    let x = marginX;
+    LIST_COLUMNS.forEach((col) => {
+      page.drawText(col.label, { x, y: tableTop, size: 9, font: boldFont, color: headerColor });
+      x += col.width;
+    });
+    page.drawLine({ start: { x: marginX, y: tableTop - 6 }, end: { x: LIST_PAGE_WIDTH - marginX, y: tableTop - 6 }, thickness: 0.75, color: lineColor });
+
+    chunk.forEach((record, rowIndex) => {
+      const y = tableTop - 6 - (rowIndex + 1) * rowHeight;
+      let cellX = marginX;
+      LIST_COLUMNS.forEach((col) => {
+        let text = col.get(record) || "-";
+        while (text.length > 0 && font.widthOfTextAtSize(text, 9) > col.width - 6) {
+          text = text.slice(0, -1);
+        }
+        page.drawText(text, { x: cellX, y, size: 9, font, color: textColor });
+        cellX += col.width;
+      });
+    });
+
+    if (chunk.length === 0) {
+      page.drawText("Nenhum cadastro para exibir.", { x: marginX, y: tableTop - 30, size: 10, font, color: headerColor });
+    }
+  });
+
+  return pdfDoc.save();
+}
+
 export default function SedeEstadualPage() {
   const [records, setRecords] = useState<SedeEstadualRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -613,6 +759,7 @@ export default function SedeEstadualPage() {
   const [cameraError, setCameraError] = useState("");
 
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [isExportingListPdf, setIsExportingListPdf] = useState(false);
 
   const normalizedForm = useMemo(() => normalizeFormForRecord(form), [form]);
   const formAnalysis = useMemo(() => analyzeForm(normalizedForm), [normalizedForm]);
@@ -911,6 +1058,21 @@ export default function SedeEstadualPage() {
     }
   }
 
+  async function handleExportListPdf() {
+    setIsExportingListPdf(true);
+    try {
+      const bytes = await buildSedeEstadualListPdfBytes(filteredRecords);
+      const url = makeBlobUrl(bytes);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (error) {
+      console.error(error);
+      alert("Não foi possível gerar o PDF da lista de cadastros.");
+    } finally {
+      setIsExportingListPdf(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -930,6 +1092,25 @@ export default function SedeEstadualPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            onClick={() => exportSedeEstadualToCSV(filteredRecords)}
+            disabled={filteredRecords.length === 0}
+          >
+            <Download className="mr-2 h-4 w-4" /> Exportar CSV
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleExportListPdf}
+            disabled={filteredRecords.length === 0 || isExportingListPdf}
+          >
+            {isExportingListPdf ? (
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            Exportar PDF
+          </Button>
           <Button onClick={showForm ? closeForm : openNewForm}>
             {showForm ? (
               <>
@@ -961,6 +1142,10 @@ export default function SedeEstadualPage() {
           <p className="text-xl font-bold text-purple-700 sm:text-2xl">{stats.cityCount}</p>
           <p className="text-xs text-muted-foreground sm:text-sm">Cidades atendidas</p>
         </div>
+      </div>
+
+      <div className="mb-6">
+        <SedeEstadualBirthdays records={records} />
       </div>
 
       <div className="mb-6 rounded-lg border p-3 sm:p-4">

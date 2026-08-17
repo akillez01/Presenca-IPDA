@@ -2,12 +2,37 @@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useAuth } from '@/hooks/use-auth';
 import { ArrowLeft, Church, Landmark } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 export const dynamic = 'force-dynamic';
 
 export default function CadastrosEspeciaisPage() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  const permissions = Array.isArray((user as any)?.permissions) ? (user as any).permissions : [];
+  const hasSedeEstadual = permissions.includes('sedeEstadual');
+  const hasBaptism = permissions.includes('baptism');
+
+  // Quem só tem uma das duas permissões vai direto para a página correspondente,
+  // sem passar por este hub (evita mostrar um card de algo que a pessoa não pode abrir).
+  useEffect(() => {
+    if (loading) return;
+    if (hasSedeEstadual && !hasBaptism) {
+      router.replace('/admin/sede-estadual');
+    } else if (hasBaptism && !hasSedeEstadual) {
+      router.replace('/batismo');
+    }
+  }, [loading, hasSedeEstadual, hasBaptism, router]);
+
+  if (loading || (hasSedeEstadual !== hasBaptism)) {
+    return null;
+  }
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
       <div className="mb-6 flex items-center gap-3">

@@ -194,7 +194,6 @@ export function normalizeNavigationPermissions(permissions: string[] | undefined
     : [];
 
   const permissionSet = new Set<NavigationPermission>(filtered.length > 0 ? filtered : fallbackPermissions);
-  permissionSet.add('dashboard');
 
   return NAVIGATION_PERMISSION_OPTIONS
     .map((option) => option.permission)

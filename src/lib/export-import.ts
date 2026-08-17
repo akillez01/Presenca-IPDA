@@ -591,7 +591,7 @@ export class ExportImportSystem {
       case 'csv':
         const csvData = this.convertToCSV(documents);
         return {
-          blob: new Blob([csvData], { type: 'text/csv;charset=utf-8' }),
+          blob: new Blob(['﻿' + csvData], { type: 'text/csv;charset=utf-8' }),
           fileName: `export_${timestamp}.csv`
         };
 

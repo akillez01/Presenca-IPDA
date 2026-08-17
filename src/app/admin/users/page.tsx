@@ -1,5 +1,6 @@
 'use client';
 
+import { AccessRequestsPanel } from '@/components/admin/access-requests-panel';
 import { UserManagement } from '@/components/admin/user-management';
 import { AdminRouteInterceptor } from '@/components/auth/admin-route-interceptor';
 import { SuperUserGuard } from '@/components/auth/super-user-guard';
@@ -16,7 +17,9 @@ export default function UsersManagementPage() {
                 Visualize e gerencie todos os usuários do sistema. Adicione novos usuários com diferentes níveis de permissão.
               </p>
             </div>
-            
+
+            <AccessRequestsPanel />
+
             {/* Componente unificado de gerenciamento */}
             <UserManagement />
           </div>

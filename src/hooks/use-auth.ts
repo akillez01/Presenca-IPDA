@@ -12,11 +12,12 @@ interface ExtendedUser extends User {
   cargo?: string;
   userType?: string;
   permissions?: string[];
+  status?: 'pendente' | 'aprovado' | 'reprovado';
 }
 
 function buildExtendedUser(
   firebaseUser: User,
-  extra: Pick<ExtendedUser, 'role' | 'cargo' | 'userType' | 'permissions'>
+  extra: Pick<ExtendedUser, 'role' | 'cargo' | 'userType' | 'permissions' | 'status'>
 ): ExtendedUser {
   return Object.assign(Object.create(Object.getPrototypeOf(firebaseUser)), firebaseUser, extra);
 }
@@ -159,6 +160,8 @@ export function useAuth() {
               const docRole = typeof userData.role === 'string' ? userData.role : undefined;
               const docUserType = typeof userData.userType === 'string' ? userData.userType : undefined;
               const docPermissions = userData.permissions;
+              const docStatus =
+                userData.status === 'pendente' || userData.status === 'reprovado' ? userData.status : 'aprovado';
 
               const resolvedUserType = docUserType || claimUserType || getUserType(firebaseUser.email || '');
               const resolvedRole = docRole || claimRole || mapUserTypeToRole(resolvedUserType);
@@ -177,6 +180,7 @@ export function useAuth() {
                 cargo: resolvedUserType,
                 userType: resolvedUserType,
                 permissions: resolvedPermissions,
+                status: docStatus,
               });
               if (DEBUG) console.log(`✅ Usuário com perfil Firestore:`, extendedUser.email, `role: ${resolvedRole}`, `userType: ${resolvedUserType}`);
             } else {
@@ -194,6 +198,7 @@ export function useAuth() {
                 cargo: fallbackUserType,
                 userType: fallbackUserType,
                 permissions: fallbackPermissions,
+                status: 'aprovado',
               });
               if (DEBUG) console.log(`✅ Usuário sem perfil Firestore (padrão):`, extendedUser.email, fallbackRole);
             }
@@ -219,8 +224,9 @@ export function useAuth() {
               cargo: fallbackUserType,
               userType: fallbackUserType,
               permissions: fallbackPermissions,
+              status: 'aprovado',
             });
-            
+
             if (DEBUG) console.log(`🔄 Fallback aplicado para ${firebaseUser.email}: role=${fallbackRole}, userType=${fallbackUserType}`);
             
             if (mounted) {
