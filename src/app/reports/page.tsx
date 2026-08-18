@@ -386,17 +386,18 @@ export default function ReportsPage() {
 
   // Filtragem com Status e Data + Usuários Ausentes
   const filteredRecords = React.useMemo(() => {
-    if (!reportData) return [];
-    
-    let records = reportData.records;
+    const attendanceRecords = reportData?.records ?? [];
+    if (!reportData && allMembers.size === 0) return [];
+
+    let records = attendanceRecords;
     const targetDate = dateFilter || getManausDateString();
-    const normalizedPositionFilter = positionFilter.trim().toLowerCase();
+    const normalizedPositionFilter = normalizarTexto(positionFilter);
     const hasSelectedPosition = positionFilter !== "ALL";
     const shouldUseGeneralDirectoryForPosition = hasSelectedPosition && statusFilter === "todos";
 
     // Base de ausentes por dia (usada no modo "Ausente" e para completar cargo selecionado)
     const registeredCPFs = new Set<string>();
-    reportData.records.forEach((r) => {
+    attendanceRecords.forEach((r) => {
       if (!r.timestamp) return;
       const recordDate = new Date(r.timestamp);
       const filterDate = new Date(targetDate + "T00:00:00");
@@ -429,10 +430,10 @@ export default function ReportsPage() {
       // Mostra todos os membros do cargo selecionado consultando o cadastro geral,
       // independentemente do período/data filtrado na tela.
       records = Array.from(allMembers.values())
-        .filter((member) => (member.churchPosition || "").trim().toLowerCase() === normalizedPositionFilter)
+        .filter((member) => normalizarTexto(member.churchPosition || "") === normalizedPositionFilter)
         .map((member) => {
           const cpf = (member.cpf || "").toString();
-          const periodRecord = reportData.records.find((record) => (record.cpf || "").toString() === cpf);
+          const periodRecord = attendanceRecords.find((record) => (record.cpf || "").toString() === cpf);
 
           return {
             ...member,
@@ -461,7 +462,7 @@ export default function ReportsPage() {
 
     // ✅ Filtro de cargo (Obreiro, Presbítero, etc.)
     records = records.filter(r => {
-      if (hasSelectedPosition && (r.churchPosition || "").trim().toLowerCase() !== normalizedPositionFilter) {
+      if (hasSelectedPosition && normalizarTexto(r.churchPosition || "") !== normalizedPositionFilter) {
         return false;
       }
       return true;
