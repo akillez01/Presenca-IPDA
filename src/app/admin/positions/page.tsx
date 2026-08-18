@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useSystemConfig } from '@/hooks/use-realtime';
+import { DEFAULT_SYSTEM_CONFIG } from '@/lib/system-config';
 import { useToast } from '@/hooks/use-toast';
 import {
   Building,
@@ -19,6 +20,64 @@ import {
   Trash2
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+
+function normalizePositionKey(value: string) {
+  return (value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const CANONICAL_POSITION_BY_KEY = new Map(
+  DEFAULT_SYSTEM_CONFIG.churchPositionOptions.map((position) => [normalizePositionKey(position), position])
+);
+
+const POSITION_ALIAS_BY_KEY = new Map<string, string>([
+  ['coperador', 'Cooperador(a)'],
+  ['cooperador', 'Cooperador(a)'],
+  ['cooperadora', 'Cooperador(a)'],
+  ['cooperador a', 'Cooperador(a)'],
+  ['secretario', 'Secretário(a)'],
+  ['secretaria', 'Secretário(a)'],
+  ['secretario a', 'Secretário(a)'],
+  ['diacono', 'Diácono'],
+  ['presbitero', 'Presbítero'],
+  ['auxiliar expansao', 'Auxiliar Expansão (a)'],
+  ['auxiliar expansao a', 'Auxiliar Expansão (a)'],
+]);
+
+function canonicalizePosition(value: string) {
+  const cleaned = (value || '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '';
+
+  const normalized = normalizePositionKey(cleaned);
+  const byAlias = POSITION_ALIAS_BY_KEY.get(normalized);
+  if (byAlias) return byAlias;
+
+  const byCanonical = CANONICAL_POSITION_BY_KEY.get(normalized);
+  if (byCanonical) return byCanonical;
+
+  return cleaned;
+}
+
+function deduplicatePositions(positions: string[]) {
+  const uniqueByKey = new Map<string, string>();
+
+  positions.forEach((rawPosition) => {
+    const canonical = canonicalizePosition(rawPosition);
+    if (!canonical) return;
+
+    const key = normalizePositionKey(canonical);
+    if (!uniqueByKey.has(key)) {
+      uniqueByKey.set(key, canonical);
+    }
+  });
+
+  return Array.from(uniqueByKey.values());
+}
 
 export default function ManagePositionsPage() {
   const { config, loading, updateConfig } = useSystemConfig();
@@ -34,7 +93,7 @@ export default function ManagePositionsPage() {
 
   useEffect(() => {
     if (config?.churchPositionOptions) {
-      setPositions([...config.churchPositionOptions]);
+      setPositions(deduplicatePositions(config.churchPositionOptions));
     }
   }, [config]);
 
@@ -48,7 +107,12 @@ export default function ManagePositionsPage() {
       return;
     }
 
-    if (positions.includes(newPosition.trim())) {
+    const canonicalNewPosition = canonicalizePosition(newPosition);
+    if (!canonicalNewPosition) {
+      return;
+    }
+
+    if (positions.some((position) => normalizePositionKey(position) === normalizePositionKey(canonicalNewPosition))) {
       toast({
         title: "Erro", 
         description: "Este cargo já existe na lista.",
@@ -57,12 +121,12 @@ export default function ManagePositionsPage() {
       return;
     }
 
-    setPositions([...positions, newPosition.trim()]);
+    setPositions([...positions, canonicalNewPosition]);
     setNewPosition('');
     
     toast({
       title: "Cargo adicionado",
-      description: `Cargo "${newPosition.trim()}" adicionado à lista.`,
+      description: `Cargo "${canonicalNewPosition}" adicionado à lista.`,
       variant: "default"
     });
   };
@@ -92,13 +156,17 @@ export default function ManagePositionsPage() {
     setIsUpdating(true);
     
     try {
+      const normalizedPositions = deduplicatePositions(positions);
+      setPositions(normalizedPositions);
+
       // Verificar quais cargos foram adicionados
-      const currentPositions = config?.churchPositionOptions || [];
-      const newlyAdded = positions.filter(pos => !currentPositions.includes(pos));
+      const currentPositions = deduplicatePositions(config?.churchPositionOptions || []);
+      const currentPositionKeys = new Set(currentPositions.map((position) => normalizePositionKey(position)));
+      const newlyAdded = normalizedPositions.filter((position) => !currentPositionKeys.has(normalizePositionKey(position)));
       
       const updatedConfig = {
         ...config,
-        churchPositionOptions: positions,
+        churchPositionOptions: normalizedPositions,
         lastUpdated: new Date(),
         updatedBy: 'admin-panel'
       };
@@ -272,7 +340,7 @@ export default function ManagePositionsPage() {
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription>
-              <strong>Importante:</strong> Os cargos "Pastor", "Membro" e "Outro" não podem ser removidos pois são essenciais para o funcionamento do sistema. As alterações serão aplicadas imediatamente no formulário de registro.
+              <strong>Importante:</strong> Os cargos &quot;Pastor&quot;, &quot;Membro&quot; e &quot;Outro&quot; não podem ser removidos pois são essenciais para o funcionamento do sistema. As alterações serão aplicadas imediatamente no formulário de registro.
             </AlertDescription>
           </Alert>
         </div>

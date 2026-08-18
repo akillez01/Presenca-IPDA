@@ -396,6 +396,21 @@ export default function ReportsPage() {
       .trim();
   }
 
+  function csvEscape(value: unknown): string {
+    const text = String(value ?? "");
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+
+  function htmlEscape(value: unknown): string {
+    const text = String(value ?? "");
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   // Filtragem com Status e Data + Usuários Ausentes
   const filteredRecords = React.useMemo(() => {
     if (!reportData) return [];
@@ -516,7 +531,26 @@ export default function ReportsPage() {
       });
     }
     
-    return records;
+    const seenRecords = new Set<string>();
+    const deduplicatedRecords = records.filter((record) => {
+      const timestampKey = record.timestamp ? new Date(record.timestamp).toISOString() : "";
+      const stableKey = record.id
+        ? `id:${record.id}`
+        : `row:${record.cpf || ""}|${timestampKey}|${record.status || ""}|${record.fullName || ""}|${record.churchPosition || ""}`;
+
+      if (seenRecords.has(stableKey)) {
+        return false;
+      }
+
+      seenRecords.add(stableKey);
+      return true;
+    });
+
+    return deduplicatedRecords.sort((a, b) => {
+      const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return timeB - timeA;
+    });
   }, [reportData, regionFilter, positionFilter, search, statusFilter, dateFilter, allMembers, monthFilter, startDateFilter, endDateFilter]);
 
   // Estatísticas filtradas
@@ -719,11 +753,11 @@ export default function ReportsPage() {
         const statusColor = record.status === "Presente" ? "#4CAF50" : record.status === "Ausente" ? "#f44336" : "#FF9800";
         html += `
           <tr>
-            <td>${record.fullName || ""}</td>
-            <td>${record.cpf || ""}</td>
-            <td>${record.pastorName || ""}</td>
-            <td>${record.churchPosition || ""}</td>
-            <td style="background-color: ${statusColor}; color: white;">${record.status || "Presente"}</td>
+            <td>${htmlEscape(record.fullName || "")}</td>
+            <td>${htmlEscape(record.cpf || "")}</td>
+            <td>${htmlEscape(record.pastorName || "")}</td>
+            <td>${htmlEscape(record.churchPosition || "")}</td>
+            <td style="background-color: ${statusColor}; color: white;">${htmlEscape(record.status || "Presente")}</td>
             <td>${record.timestamp ? new Date(record.timestamp).toLocaleDateString("pt-BR") : ""}</td>
           </tr>
         `;
@@ -870,13 +904,13 @@ export default function ReportsPage() {
       "",
       "Nome Completo,CPF,Pastor,Cargo,Região,Status,Data/Hora",
       ...filteredRecords.map((r) => [
-        `"${r.fullName || ""}"`,
-        `"${r.cpf || ""}"`,
-        `"${r.pastorName || ""}"`,
-        `"${r.churchPosition || ""}"`,
-        `"${r.region || ""}"`,
-        `"${r.status || "Presente"}"`,
-        r.timestamp ? new Date(r.timestamp).toLocaleDateString("pt-BR") + " " + new Date(r.timestamp).toLocaleTimeString("pt-BR") : "",
+        csvEscape(r.fullName || ""),
+        csvEscape(r.cpf || ""),
+        csvEscape(r.pastorName || ""),
+        csvEscape(r.churchPosition || ""),
+        csvEscape(r.region || ""),
+        csvEscape(r.status || "Presente"),
+        csvEscape(r.timestamp ? new Date(r.timestamp).toLocaleDateString("pt-BR") + " " + new Date(r.timestamp).toLocaleTimeString("pt-BR") : ""),
       ].join(","))
     ];
     const csvContent = headers.join("\n");
