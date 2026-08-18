@@ -510,7 +510,13 @@ export default function ReportsPage() {
       if (regionFilter !== "ALL") {
         const selectedRegionKey = normalizeRegionKey(regionFilter);
         const recordRegionKey = normalizeRegionKey(r.region || "");
-        if (!selectedRegionKey || recordRegionKey !== selectedRegionKey) {
+        const matchesRegion =
+          Boolean(selectedRegionKey) &&
+          (recordRegionKey === selectedRegionKey ||
+            recordRegionKey.includes(selectedRegionKey) ||
+            selectedRegionKey.includes(recordRegionKey));
+
+        if (!matchesRegion) {
           return false;
         }
       }
