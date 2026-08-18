@@ -6,8 +6,10 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAuth } from "@/hooks/use-auth";
 import { usePeriodReports } from "@/hooks/use-reports";
 import { getAttendanceHistoryByCpf, syncMemberProfile, updateAttendanceRecord } from "@/lib/actions";
+import { auth } from "@/lib/firebase";
 import { getMemberDirectoryRecords, isSameManausDay } from "@/lib/member-data";
 import type { AttendanceRecord } from "@/lib/types";
 import { Edit, FileDown, QrCode, Save, X } from "lucide-react";
@@ -109,10 +111,84 @@ function buildMonthOptionsForYear(referenceYear: number) {
   });
 }
 
+function parseDateSafely(value: unknown): Date | undefined {
+  if (!value) return undefined;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value;
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  }
+  return undefined;
+}
+
+async function getMemberDirectoryRecordsViaApi(): Promise<AttendanceRecord[]> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    return [];
+  }
+
+  try {
+    const token = await currentUser.getIdToken();
+    const response = await fetch("/api/admin/members-directory", {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | { success?: boolean; members?: Array<Record<string, unknown>> }
+      | null;
+
+    if (!response.ok || !payload?.success || !Array.isArray(payload.members)) {
+      return [];
+    }
+
+    return payload.members
+      .map((member) => {
+        const timestamp =
+          parseDateSafely(member.lastPresenceAt) ||
+          parseDateSafely(member.updatedAt) ||
+          parseDateSafely(member.createdAt) ||
+          new Date();
+
+        return {
+          id: String(member.id || member.cpf || ""),
+          memberId: String(member.id || member.cpf || ""),
+          sourceCollection: "members",
+          timestamp,
+          createdAt: parseDateSafely(member.createdAt) || timestamp,
+          updatedAt: parseDateSafely(member.updatedAt),
+          lastPresenceAt: parseDateSafely(member.lastPresenceAt),
+          fullName: String(member.fullName || ""),
+          cpf: String(member.cpf || "").replace(/\D/g, ""),
+          birthday: String(member.birthday || ""),
+          reclassification: String(member.reclassification || ""),
+          pastorName: String(member.pastorName || ""),
+          region: String(member.region || ""),
+          churchPosition: String(member.churchPosition || ""),
+          city: String(member.city || ""),
+          shift: String(member.shift || ""),
+          totvs: String(member.totvs || ""),
+          etda: String(member.etda || ""),
+          status: String(member.status || "Ausente"),
+          photoUrl: (member.photoUrl as string | null | undefined) ?? null,
+          absentReason: String(member.absentReason || ""),
+        } as AttendanceRecord;
+      })
+      .filter((member) => Boolean(member.cpf));
+  } catch (error) {
+    console.warn("Nao foi possivel carregar membros via API admin.", error);
+    return [];
+  }
+}
+
 
 export default function ReportsPage() {
   // Hooks de dados
   const { reportData, loading, error, loadPeriod } = usePeriodReports();
+  const { user: authUser } = useAuth();
 
   // Estados de filtro simplificados
   const [regionFilter, setRegionFilter] = React.useState("ALL");
@@ -185,7 +261,8 @@ export default function ReportsPage() {
 
     const loadDirectory = async () => {
       try {
-        const members = await getMemberDirectoryRecords();
+        const membersFromApi = authUser ? await getMemberDirectoryRecordsViaApi() : [];
+        const members = membersFromApi.length > 0 ? membersFromApi : await getMemberDirectoryRecords();
         if (!active) return;
 
         const membersMap = new Map<string, AttendanceRecord>();
@@ -215,7 +292,7 @@ export default function ReportsPage() {
     return () => {
       active = false;
     };
-  }, [reportData]);
+  }, [reportData, authUser]);
 
   // Regiões e cargos disponíveis vêm do cadastro mestre de membros (não do período
   // carregado) — assim as opções não somem do filtro quando o dia/mês selecionado
@@ -312,43 +389,58 @@ export default function ReportsPage() {
     if (!reportData) return [];
     
     let records = reportData.records;
+    const targetDate = dateFilter || getManausDateString();
+    const normalizedPositionFilter = positionFilter.trim().toLowerCase();
+    const hasSelectedPosition = positionFilter !== "ALL";
+    const shouldUseGeneralDirectoryForPosition = hasSelectedPosition && statusFilter === "todos";
+
+    // Base de ausentes por dia (usada no modo "Ausente" e para completar cargo selecionado)
+    const registeredCPFs = new Set<string>();
+    reportData.records.forEach((r) => {
+      if (!r.timestamp) return;
+      const recordDate = new Date(r.timestamp);
+      const filterDate = new Date(targetDate + "T00:00:00");
+      if (isSameManausDay(recordDate, filterDate) && r.cpf) {
+        registeredCPFs.add(r.cpf);
+      }
+    });
+
+    const absentMembers = Array.from(allMembers.entries())
+      .filter(([cpf]) => cpf && !registeredCPFs.has(cpf))
+      .map(([cpf, member]) => ({
+        id: `absent-${cpf}`,
+        cpf: member.cpf,
+        fullName: member.fullName,
+        status: "Ausente",
+        region: member.region,
+        churchPosition: member.churchPosition,
+        pastorName: member.pastorName,
+        reclassification: member.reclassification,
+        city: member.city,
+        shift: member.shift,
+        timestamp: new Date(targetDate + "T00:00:00"),
+        photoUrl: member.photoUrl,
+      } as AttendanceRecord));
 
     // 🚨 LÓGICA ESPECIAL: Se filtro "Ausente" está ativo, mostrar MEMBROS SEM registro no dia
     if (statusFilter === "Ausente") {
-      const targetDate = dateFilter || getManausDateString();
-      
-      // CPFs dos membros que JÁ registraram presença no dia específico
-      const registeredCPFs = new Set<string>();
-      reportData.records.forEach(r => {
-        if (!r.timestamp) return;
-        
-        const recordDate = new Date(r.timestamp);
-        const filterDate = new Date(targetDate + "T00:00:00");
-
-        if (isSameManausDay(recordDate, filterDate) && r.cpf) {
-          registeredCPFs.add(r.cpf);
-        }
-      });
-      
-      // Criar registros virtuais para membros que NÃO registraram no dia
-      const absentMembers = Array.from(allMembers.entries())
-        .filter(([cpf]) => cpf && !registeredCPFs.has(cpf))
-        .map(([cpf, member]) => ({
-          id: `absent-${cpf}`,
-          cpf: member.cpf,
-          fullName: member.fullName,
-          status: 'Ausente',
-          region: member.region,
-          churchPosition: member.churchPosition,
-          pastorName: member.pastorName,
-          reclassification: member.reclassification,
-          city: member.city,
-          shift: member.shift,
-          timestamp: new Date(targetDate + "T00:00:00"),
-          photoUrl: member.photoUrl,
-        } as AttendanceRecord));
-      
       records = absentMembers;
+    } else if (shouldUseGeneralDirectoryForPosition) {
+      // Mostra todos os membros do cargo selecionado consultando o cadastro geral,
+      // independentemente do período/data filtrado na tela.
+      records = Array.from(allMembers.values())
+        .filter((member) => (member.churchPosition || "").trim().toLowerCase() === normalizedPositionFilter)
+        .map((member) => {
+          const cpf = (member.cpf || "").toString();
+          const periodRecord = reportData.records.find((record) => (record.cpf || "").toString() === cpf);
+
+          return {
+            ...member,
+            id: member.id || `member-${cpf}`,
+            status: periodRecord?.status || member.status || "Ausente",
+            timestamp: periodRecord?.timestamp || member.lastPresenceAt || member.updatedAt || member.createdAt || new Date(),
+          } as AttendanceRecord;
+        });
     } else {
       // Filtro normal de status (Presente, Justificado, etc.)
       records = records.filter(r => {
@@ -369,14 +461,14 @@ export default function ReportsPage() {
 
     // ✅ Filtro de cargo (Obreiro, Presbítero, etc.)
     records = records.filter(r => {
-      if (positionFilter !== "ALL" && r.churchPosition !== positionFilter) {
+      if (hasSelectedPosition && (r.churchPosition || "").trim().toLowerCase() !== normalizedPositionFilter) {
         return false;
       }
       return true;
     });
 
     // ✅ Filtro de data exata (legado) para quem ainda usa o campo único
-    if (dateFilter && statusFilter !== "Ausente") {
+    if (dateFilter && statusFilter !== "Ausente" && !shouldUseGeneralDirectoryForPosition) {
       records = records.filter(r => {
         if (!r.timestamp) return false;
         const recordDate = new Date(r.timestamp);
@@ -386,7 +478,7 @@ export default function ReportsPage() {
     }
 
     // ✅ Novo filtro por intervalo de datas (início/fim)
-    if ((startDateFilter || endDateFilter) && statusFilter !== "Ausente") {
+    if ((startDateFilter || endDateFilter) && statusFilter !== "Ausente" && !shouldUseGeneralDirectoryForPosition) {
       const start = startDateFilter ? new Date(startDateFilter + "T00:00:00") : null;
       const end = endDateFilter ? new Date(endDateFilter + "T23:59:59") : null;
 
@@ -399,7 +491,7 @@ export default function ReportsPage() {
       });
     }
 
-    if (monthFilter) {
+    if (monthFilter && !shouldUseGeneralDirectoryForPosition) {
       records = records.filter((record) => isInManausMonth(record.timestamp, monthFilter));
     }
 
@@ -421,7 +513,7 @@ export default function ReportsPage() {
     }
     
     return records;
-  }, [reportData, regionFilter, positionFilter, search, statusFilter, dateFilter, allMembers, monthFilter]);
+  }, [reportData, regionFilter, positionFilter, search, statusFilter, dateFilter, allMembers, monthFilter, startDateFilter, endDateFilter]);
 
   // Estatísticas filtradas
   const filteredStats = React.useMemo(() => {
