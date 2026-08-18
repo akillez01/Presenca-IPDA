@@ -449,7 +449,22 @@ export default function ReportsPage() {
   // Filtragem com Status e Data + Usuários Ausentes
   const filteredRecords = React.useMemo(() => {
     if (!reportData) return [];
-    const attendanceRecords = reportData.records;
+    const attendanceRecords = reportData.records.map((record) => {
+      const cpf = (record.cpf || "").toString();
+      if (!cpf) return record;
+
+      const member = allMembers.get(cpf);
+      if (!member) return record;
+
+      return {
+        ...record,
+        region: record.region || member.region,
+        churchPosition: record.churchPosition || member.churchPosition,
+        pastorName: record.pastorName || member.pastorName,
+        city: record.city || member.city,
+        reclassification: record.reclassification || member.reclassification,
+      } as AttendanceRecord;
+    });
 
     let records = attendanceRecords;
     const targetDate = dateFilter || getManausDateString();
