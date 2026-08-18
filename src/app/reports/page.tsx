@@ -111,6 +111,34 @@ function buildMonthOptionsForYear(referenceYear: number) {
   });
 }
 
+function normalizeRegionKey(value: string) {
+  return (value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s-]/g, " ")
+    .replace(/([a-z])(\d)/g, "$1 $2")
+    .replace(/(\d)([a-z])/g, "$1 $2")
+    .replace(/\s*-\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatRegionLabel(value: string) {
+  const normalized = normalizeRegionKey(value);
+  if (!normalized) return "";
+
+  return normalized
+    .split(" ")
+    .map((word) => {
+      if (/^(i|ii|iii|iv|v|vi|vii|viii|ix|x)$/.test(word)) {
+        return word.toUpperCase();
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(" ");
+}
+
 function parseDateSafely(value: unknown): Date | undefined {
   if (!value) return undefined;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value;
@@ -310,9 +338,16 @@ export default function ReportsPage() {
   // carregado) — assim as opções não somem do filtro quando o dia/mês selecionado
   // não tem ninguém daquela região/cargo.
   const availableRegions = React.useMemo(() => {
-    return Array.from(new Set(Array.from(allMembers.values()).map((m) => m.region).filter(Boolean))).sort((a, b) =>
-      a.localeCompare(b, "pt-BR")
-    );
+    const regionsByKey = new Map<string, string>();
+
+    Array.from(allMembers.values()).forEach((member) => {
+      const rawRegion = typeof member.region === "string" ? member.region : "";
+      const key = normalizeRegionKey(rawRegion);
+      if (!key || regionsByKey.has(key)) return;
+      regionsByKey.set(key, formatRegionLabel(rawRegion));
+    });
+
+    return Array.from(regionsByKey.values()).sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [allMembers]);
 
   // Apenas os cargos disponíveis (Obreiro, Presbítero, etc.)
@@ -472,8 +507,12 @@ export default function ReportsPage() {
     
     // ✅ Filtro de região
     records = records.filter(r => {
-      if (regionFilter !== "ALL" && !(r.region || '').toLowerCase().includes(regionFilter.toLowerCase())) {
-        return false;
+      if (regionFilter !== "ALL") {
+        const selectedRegionKey = normalizeRegionKey(regionFilter);
+        const recordRegionKey = normalizeRegionKey(r.region || "");
+        if (!selectedRegionKey || recordRegionKey !== selectedRegionKey) {
+          return false;
+        }
       }
       return true;
     });
