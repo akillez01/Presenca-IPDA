@@ -880,10 +880,6 @@ export const POS = {
   // por isso o nome do ministério saía ilegível, misturado com o rótulo.
   otherMinistry: { x: 316, y: 427 },
 
-  // Não existe campo "Sexo" na ficha oficial impressa; escrevemos dentro do
-  // espaço em branco à direita do título "1. Informações do novo convertido..."
-  genderLabel: { x: 365, y: 641 },
-
   // 2) Congregação
   congAddress: { x: 76, y: 381 },
   congNumber: { x: 529, y: 381 },
@@ -967,6 +963,7 @@ export async function buildFilledPdfBytes(data: BaptismFormData) {
 
   const page = pdfDoc.getPages()[0];
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
   const fontSize = 10.2;
   const dateFontSize = 9.6;
@@ -1032,7 +1029,35 @@ export async function buildFilledPdfBytes(data: BaptismFormData) {
 
   // ===== 1) Dados
   if (normalizedData.gender) {
-    drawTextLine(`Sexo: ${normalizedData.gender}`, POS.genderLabel.x, POS.genderLabel.y, 200);
+    // Sem campo "Sexo" na ficha oficial impressa: desenha um "chip" com borda
+    // encostado na margem direita da barra do título da seção 1, para não
+    // parecer que o texto está solto/colado no título.
+    const label = `Sexo: ${normalizedData.gender}`;
+    const badgeSize = 9;
+    const paddingX = 6;
+    const textWidth = boldFont.widthOfTextAtSize(label, badgeSize);
+    const badgeRight = 567;
+    const badgeWidth = textWidth + paddingX * 2;
+    const badgeX = badgeRight - badgeWidth;
+    const badgeY = 639;
+    const badgeHeight = 14;
+
+    page.drawRectangle({
+      x: badgeX,
+      y: badgeY,
+      width: badgeWidth,
+      height: badgeHeight,
+      borderColor: color,
+      borderWidth: 0.75,
+      color: rgb(1, 1, 1),
+    });
+    page.drawText(label, {
+      x: badgeX + paddingX,
+      y: badgeY + 4,
+      size: badgeSize,
+      font: boldFont,
+      color,
+    });
   }
 
   drawTextLine(normalizedData.fullName, POS.fullName.x, POS.fullName.y, 350);
