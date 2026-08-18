@@ -229,7 +229,7 @@ export default function ReportsPage() {
   const [monthFilter, setMonthFilter] = React.useState("");
   const [isFiltersExpanded, setIsFiltersExpanded] = React.useState(true); // ✅ Estado para expandir/minimizar
 
-  const shouldForceYearToDateForPosition = positionFilter !== "ALL";
+  const shouldForceYearToDateForScope = positionFilter !== "ALL" || regionFilter !== "ALL";
 
   // ✅ Período efetivamente buscado no Firestore: por padrão só HOJE.
   // Mudar mês/data/intervalo dispara uma nova consulta indexada só para aquele
@@ -237,7 +237,7 @@ export default function ReportsPage() {
   const selectedPeriod = React.useMemo(() => {
     // Quando há cargo selecionado, sempre consulta do início do ano até hoje,
     // independente dos filtros de data/mês/intervalo.
-    if (shouldForceYearToDateForPosition) {
+    if (shouldForceYearToDateForScope) {
       const now = new Date();
       return {
         start: new Date(now.getFullYear(), 0, 1),
@@ -264,7 +264,7 @@ export default function ReportsPage() {
     }
     const today = new Date();
     return { start: today, end: today };
-  }, [monthFilter, startDateFilter, endDateFilter, dateFilter, shouldForceYearToDateForPosition]);
+  }, [monthFilter, startDateFilter, endDateFilter, dateFilter, shouldForceYearToDateForScope]);
 
   React.useEffect(() => {
     loadPeriod(selectedPeriod.start, selectedPeriod.end);
@@ -477,7 +477,8 @@ export default function ReportsPage() {
       return selectedPositionTokens.length > 0 && selectedPositionTokens.every((token) => normalizedPosition.includes(token));
     };
     const hasSelectedPosition = positionFilter !== "ALL";
-    const shouldIgnoreDateFiltersForPosition = hasSelectedPosition;
+    const hasSelectedRegion = regionFilter !== "ALL";
+    const shouldIgnoreDateFiltersForScope = hasSelectedPosition || hasSelectedRegion;
 
     // Base de ausentes por dia (usada no modo "Ausente" e para completar cargo selecionado)
     const registeredCPFs = new Set<string>();
@@ -510,6 +511,38 @@ export default function ReportsPage() {
     // 🚨 LÓGICA ESPECIAL: Se filtro "Ausente" está ativo, mostrar MEMBROS SEM registro no dia
     if (statusFilter === "Ausente") {
       records = absentMembers;
+    } else if (statusFilter === "todos" && (hasSelectedPosition || hasSelectedRegion)) {
+      const latestAttendanceByCpf = new Map<string, AttendanceRecord>();
+      attendanceRecords.forEach((attendanceRecord) => {
+        const cpf = (attendanceRecord.cpf || "").toString();
+        if (!cpf) return;
+
+        const current = latestAttendanceByCpf.get(cpf);
+        const currentTime = current?.timestamp ? new Date(current.timestamp).getTime() : 0;
+        const nextTime = attendanceRecord.timestamp ? new Date(attendanceRecord.timestamp).getTime() : 0;
+
+        if (!current || nextTime >= currentTime) {
+          latestAttendanceByCpf.set(cpf, attendanceRecord);
+        }
+      });
+
+      records = Array.from(allMembers.values()).map((member) => {
+        const cpf = (member.cpf || "").toString();
+        const latestAttendance = cpf ? latestAttendanceByCpf.get(cpf) : undefined;
+
+        return {
+          ...member,
+          id: latestAttendance?.id || member.id || `member-${cpf}`,
+          status: latestAttendance?.status || "Ausente",
+          timestamp:
+            latestAttendance?.timestamp ||
+            member.lastPresenceAt ||
+            member.updatedAt ||
+            member.createdAt ||
+            new Date(targetDate + "T00:00:00"),
+          sourceCollection: latestAttendance?.sourceCollection || member.sourceCollection,
+        } as AttendanceRecord;
+      });
     } else {
       // Filtro normal de status (Presente, Justificado, etc.)
       records = records.filter(r => {
@@ -547,7 +580,7 @@ export default function ReportsPage() {
     });
 
     // ✅ Filtro de data exata (legado) para quem ainda usa o campo único
-    if (dateFilter && statusFilter !== "Ausente" && !shouldIgnoreDateFiltersForPosition) {
+    if (dateFilter && statusFilter !== "Ausente" && !shouldIgnoreDateFiltersForScope) {
       records = records.filter(r => {
         if (!r.timestamp) return false;
         const recordDate = new Date(r.timestamp);
@@ -557,7 +590,7 @@ export default function ReportsPage() {
     }
 
     // ✅ Novo filtro por intervalo de datas (início/fim)
-    if ((startDateFilter || endDateFilter) && statusFilter !== "Ausente" && !shouldIgnoreDateFiltersForPosition) {
+    if ((startDateFilter || endDateFilter) && statusFilter !== "Ausente" && !shouldIgnoreDateFiltersForScope) {
       const start = startDateFilter ? new Date(startDateFilter + "T00:00:00") : null;
       const end = endDateFilter ? new Date(endDateFilter + "T23:59:59") : null;
 
@@ -570,7 +603,7 @@ export default function ReportsPage() {
       });
     }
 
-    if (monthFilter && !shouldIgnoreDateFiltersForPosition) {
+    if (monthFilter && !shouldIgnoreDateFiltersForScope) {
       records = records.filter((record) => isInManausMonth(record.timestamp, monthFilter));
     }
 
@@ -1032,7 +1065,7 @@ export default function ReportsPage() {
       {/* Indicador do período carregado — por padrão só o dia de hoje */}
       <div className="bg-slate-100 text-slate-700 p-2 sm:p-3 rounded text-xs sm:text-sm">
         📅 Mostrando: <strong>
-          {shouldForceYearToDateForPosition
+          {shouldForceYearToDateForScope
             ? `de ${new Date(new Date().getFullYear(), 0, 1).toLocaleDateString("pt-BR")} até hoje (${formatManausDate()})`
             : monthFilter
             ? formatMonthFilterLabel(monthFilter)
@@ -1042,7 +1075,7 @@ export default function ReportsPage() {
                 ? new Date(dateFilter + "T00:00:00").toLocaleDateString("pt-BR")
                 : `hoje (${formatManausDate()})`}
         </strong>{" "}
-        — {shouldForceYearToDateForPosition ? "com cargo selecionado, o período é fixado no ano atual." : "use os filtros de mês, data ou intervalo abaixo para consultar outros períodos."}
+        — {shouldForceYearToDateForScope ? "com região/cargo selecionado, o período é fixado no ano atual." : "use os filtros de mês, data ou intervalo abaixo para consultar outros períodos."}
       </div>
 
       {/* Filtros Colapsáveis */}
