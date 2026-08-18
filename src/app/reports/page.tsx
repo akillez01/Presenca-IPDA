@@ -392,6 +392,13 @@ export default function ReportsPage() {
     let records = attendanceRecords;
     const targetDate = dateFilter || getManausDateString();
     const normalizedPositionFilter = normalizarTexto(positionFilter);
+    const selectedPositionTokens = normalizedPositionFilter.split(" ").filter((token) => token.length >= 3);
+    const matchesSelectedPosition = (position: string) => {
+      const normalizedPosition = normalizarTexto(position || "");
+      if (!normalizedPositionFilter) return true;
+      if (normalizedPosition === normalizedPositionFilter) return true;
+      return selectedPositionTokens.length > 0 && selectedPositionTokens.every((token) => normalizedPosition.includes(token));
+    };
     const hasSelectedPosition = positionFilter !== "ALL";
     const shouldUseGeneralDirectoryForPosition = hasSelectedPosition && statusFilter === "todos";
 
@@ -430,7 +437,7 @@ export default function ReportsPage() {
       // Mostra todos os membros do cargo selecionado consultando o cadastro geral,
       // independentemente do período/data filtrado na tela.
       records = Array.from(allMembers.values())
-        .filter((member) => normalizarTexto(member.churchPosition || "") === normalizedPositionFilter)
+        .filter((member) => matchesSelectedPosition(member.churchPosition || ""))
         .map((member) => {
           const cpf = (member.cpf || "").toString();
           const periodRecord = attendanceRecords.find((record) => (record.cpf || "").toString() === cpf);
@@ -462,7 +469,7 @@ export default function ReportsPage() {
 
     // ✅ Filtro de cargo (Obreiro, Presbítero, etc.)
     records = records.filter(r => {
-      if (hasSelectedPosition && normalizarTexto(r.churchPosition || "") !== normalizedPositionFilter) {
+      if (hasSelectedPosition && !matchesSelectedPosition(r.churchPosition || "")) {
         return false;
       }
       return true;

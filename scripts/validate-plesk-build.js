@@ -155,10 +155,10 @@ if (hasFirebaseConfig) {
 console.log('\n📊 Estatísticas do build:');
 const { execSync } = require('child_process');
 try {
-    const totalSize = execSync(`du -sh ${outputDir}`, { encoding: 'utf8' }).split('\t')[0];
+    const totalSize = execSync(`du -sh "${outputDir}"`, { encoding: 'utf8' }).split('\t')[0];
     console.log(`📦 Tamanho total: ${totalSize.trim()}`);
     
-    const fileCount = execSync(`find ${outputDir} -type f | wc -l`, { encoding: 'utf8' }).trim();
+    const fileCount = execSync(`find "${outputDir}" -type f | wc -l`, { encoding: 'utf8' }).trim();
     console.log(`📄 Total de arquivos: ${fileCount}`);
 } catch (error) {
     console.log('📊 Não foi possível calcular estatísticas');

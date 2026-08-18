@@ -260,7 +260,7 @@ async function main() {
 
         // 7. Estatísticas finais
         const stats = fs.statSync(outputDir);
-        const totalSize = execSync(`du -sh ${outputDir}`, { encoding: 'utf8' }).split('\\t')[0];
+        const totalSize = execSync(`du -sh "${outputDir}"`, { encoding: 'utf8' }).split('\\t')[0];
 
         console.log('🎉 Build para Plesk concluído com sucesso!\n');
         console.log('📊 Estatísticas:');
