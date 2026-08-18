@@ -876,7 +876,13 @@ export const POS = {
 
   acceptedIpdaX: { x: 144.8, y: 427 },
   acceptedOtherX: { x: 195.53, y: 427 },
-  otherMinistry: { x: 286.07, y: 427 },
+  // x=286.07 ficava em cima do texto impresso "qual?" (que vai até ~310.5),
+  // por isso o nome do ministério saía ilegível, misturado com o rótulo.
+  otherMinistry: { x: 316, y: 427 },
+
+  // Não existe campo "Sexo" na ficha oficial impressa; escrevemos dentro do
+  // espaço em branco à direita do título "1. Informações do novo convertido..."
+  genderLabel: { x: 365, y: 641 },
 
   // 2) Congregação
   congAddress: { x: 76, y: 381 },
@@ -1025,6 +1031,10 @@ export async function buildFilledPdfBytes(data: BaptismFormData) {
   drawX(normalizedData.baptismMonth === "Setembro", POS.monthSeptX.x, POS.monthSeptX.y);
 
   // ===== 1) Dados
+  if (normalizedData.gender) {
+    drawTextLine(`Sexo: ${normalizedData.gender}`, POS.genderLabel.x, POS.genderLabel.y, 200);
+  }
+
   drawTextLine(normalizedData.fullName, POS.fullName.x, POS.fullName.y, 350);
   drawTextLine(formatPhoneField(normalizedData.phone), POS.phone.x, POS.phone.y, 95);
 
