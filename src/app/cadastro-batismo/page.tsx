@@ -10,8 +10,7 @@ import { useState, type ChangeEvent, type FormEvent } from "react";
 
 import {
   analyzeFormForDocument,
-  BAPTISM_PENDING_COLLECTION,
-  BAPTISM_PENDING_STORAGE_ROOT,
+  BAPTISM_COLLECTION,
   type BaptismDocumentKey,
   type BaptismFormData,
   buildFilledPdfBytes,
@@ -144,12 +143,7 @@ export default function CadastroBatismoPublicoPage() {
       let normalizedToPersist: BaptismFormData = { ...normalized };
 
       if ((normalizedToPersist.photoDataUrl || "").startsWith("data:image/")) {
-        const uploadedPhoto = await uploadPhotoToStorage(
-          recordId,
-          normalizedToPersist.photoDataUrl,
-          undefined,
-          BAPTISM_PENDING_STORAGE_ROOT
-        );
+        const uploadedPhoto = await uploadPhotoToStorage(recordId, normalizedToPersist.photoDataUrl);
         normalizedToPersist = {
           ...normalizedToPersist,
           photoDataUrl: uploadedPhoto.photoDataUrl,
@@ -160,7 +154,7 @@ export default function CadastroBatismoPublicoPage() {
       const nextDocuments = { ...normalizedToPersist.documents };
       for (const [key, file] of Object.entries(pendingDocumentFiles) as Array<[BaptismDocumentKey, File | undefined]>) {
         if (!file) continue;
-        const uploaded = await uploadDocumentToStorage(recordId, key, file, BAPTISM_PENDING_STORAGE_ROOT);
+        const uploaded = await uploadDocumentToStorage(recordId, key, file);
         nextDocuments[key] = {
           key,
           label: DOCUMENT_DEFINITIONS[key].label,
@@ -175,12 +169,9 @@ export default function CadastroBatismoPublicoPage() {
       normalizedToPersist = { ...normalizedToPersist, documents: nextDocuments };
 
       const record = buildRecordFromForm(normalizedToPersist, { id: recordId });
-      const payload = stripUndefinedDeep({
-        ...record,
-        status: "pending",
-      });
+      const payload = stripUndefinedDeep(record);
 
-      await setDoc(doc(db, BAPTISM_PENDING_COLLECTION, recordId), payload);
+      await setDoc(doc(db, BAPTISM_COLLECTION, recordId), payload);
 
       setSubmittedForm(normalizedToPersist);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -223,8 +214,8 @@ export default function CadastroBatismoPublicoPage() {
             <CheckCircle2 className="h-14 w-14 text-emerald-600" />
             <CardTitle className="text-2xl">Cadastro enviado!</CardTitle>
             <CardDescription>
-              Obrigado, {submittedForm.fullName}. Seu cadastro de batismo foi enviado e ficará aguardando
-              aprovação da secretaria. Você pode baixar uma cópia da sua ficha preenchida abaixo.
+              Obrigado, {submittedForm.fullName}. Seu cadastro de batismo foi enviado e já está registrado.
+              Você pode baixar uma cópia da sua ficha preenchida abaixo.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col items-center gap-3">
@@ -258,8 +249,8 @@ export default function CadastroBatismoPublicoPage() {
         </div>
         <h1 className="text-2xl font-bold text-slate-900">Cadastro de Batismo</h1>
         <p className="max-w-xl text-sm text-muted-foreground">
-          Preencha seus dados para o batismo nas águas. Depois de enviado, seu cadastro fica aguardando
-          aprovação da secretaria da igreja.
+          Preencha seus dados para o batismo nas águas. Depois de enviado, seu cadastro já entra
+          automaticamente na lista de batizados da secretaria.
         </p>
       </div>
 

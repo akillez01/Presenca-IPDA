@@ -332,7 +332,7 @@ function analyzeForm(data: SedeEstadualFormData): FormAnalysis {
 
   if (!data.fullName) errors.push(makeIssue("fullName", "Preencha o nome completo."));
   if (!data.photoDataUrl) errors.push(makeIssue("photoDataUrl", "Adicione a fotografia 3x4."));
-  if (!data.churchPosition) errors.push(makeIssue("churchPosition", "Selecione o cargo."));
+  if (!data.churchPosition) errors.push(makeIssue("churchPosition", "Selecione a função ministerial."));
 
   if (data.cpf && !isValidCpfField(data.cpf)) errors.push(makeIssue("cpf", "O CPF informado é inválido."));
   if (data.phone && !isValidPhoneField(data.phone)) errors.push(makeIssue("phone", "Revise o telefone (DDD + número)."));
@@ -426,7 +426,7 @@ function exportSedeEstadualToCSV(records: SedeEstadualRecord[]) {
   const headers = [
     "Nome",
     "CPF",
-    "Cargo",
+    "Função ministerial",
     "Telefone",
     "Cidade",
     "Estado",
@@ -654,7 +654,7 @@ async function buildSedeEstadualPdfBytes(record: SedeEstadualRecord): Promise<Ui
   drawField(40, 535, 180, "RG", data.rg);
   drawField(230, 535, 190, "CPF", data.cpf);
 
-  drawField(40, 500, 415, "Cargo", data.churchPosition);
+  drawField(40, 500, 415, "Função ministerial", data.churchPosition);
 
   drawField(40, 460, 300, "Nacionalidade", data.nationality);
   drawField(360, 460, 195, "Batismo", formatDateField(data.baptismDate));
@@ -674,7 +674,7 @@ const LIST_PAGE_HEIGHT = 595.28;
 const LIST_ROWS_PER_PAGE = 20;
 const LIST_COLUMNS: { label: string; width: number; get: (r: SedeEstadualRecord) => string }[] = [
   { label: "Nome", width: 190, get: (r) => r.fullName },
-  { label: "Cargo", width: 100, get: (r) => r.churchPosition },
+  { label: "Função ministerial", width: 100, get: (r) => r.churchPosition },
   { label: "Telefone", width: 110, get: (r) => r.formData.phone },
   { label: "Cidade/UF", width: 140, get: (r) => [r.city, r.formData.state].filter(Boolean).join("/") },
   { label: "CPF", width: 110, get: (r) => r.cpf },
@@ -1149,7 +1149,7 @@ export default function SedeEstadualPage() {
       </div>
 
       <div className="mb-6 rounded-lg border p-3 sm:p-4">
-        <p className="mb-3 text-sm font-medium text-muted-foreground">Cadastros por cargo</p>
+        <p className="mb-3 text-sm font-medium text-muted-foreground">Cadastros por função ministerial</p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           {stats.byPosition.map(({ position, count }) => (
             <div key={position} className="rounded border bg-slate-50 px-2 py-2 text-center">
@@ -1309,13 +1309,13 @@ export default function SedeEstadualPage() {
                 </div>
 
                 <div className="sm:col-span-2">
-                  <Label>Cargo</Label>
+                  <Label>Função ministerial</Label>
                   <Select
                     value={form.churchPosition || undefined}
                     onValueChange={(v) => updateField("churchPosition", v as ChurchPosition)}
                   >
                     <SelectTrigger className={getInputClass("churchPosition")}>
-                      <SelectValue placeholder="Selecione o cargo" />
+                      <SelectValue placeholder="Selecione a função ministerial" />
                     </SelectTrigger>
                     <SelectContent>
                       {CHURCH_POSITIONS.map((option) => (
@@ -1416,7 +1416,7 @@ export default function SedeEstadualPage() {
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 className="pl-8"
-                placeholder="Buscar por nome, CPF, cidade ou cargo"
+                placeholder="Buscar por nome, CPF, cidade ou função ministerial"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -1424,10 +1424,10 @@ export default function SedeEstadualPage() {
 
             <Select value={positionFilter} onValueChange={setPositionFilter}>
               <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Cargo" />
+                <SelectValue placeholder="Função ministerial" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todos os cargos</SelectItem>
+                <SelectItem value="all">Todas as funções ministeriais</SelectItem>
                 {CHURCH_POSITIONS.map((option) => (
                   <SelectItem key={option} value={option}>
                     {option}
@@ -1462,7 +1462,7 @@ export default function SedeEstadualPage() {
                   <TableRow>
                     <TableHead>Foto</TableHead>
                     <TableHead>Nome</TableHead>
-                    <TableHead>Cargo</TableHead>
+                    <TableHead>Função ministerial</TableHead>
                     <TableHead>Cidade</TableHead>
                     <TableHead>CPF</TableHead>
                     <TableHead>Telefone</TableHead>

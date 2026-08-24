@@ -283,7 +283,7 @@ export function formatFileSize(bytes: number) {
 export function getDocumentChecklist(
   maritalStatus: BaptismFormData["maritalStatus"]
 ): BaptismDocumentChecklistItem[] {
-  const required = new Set<BaptismDocumentKey>(["rgCpfCopy", "residenceProof", "militaryCertificate"]);
+  const required = new Set<BaptismDocumentKey>(["rgCpfCopy", "residenceProof"]);
 
   if (maritalStatus.includes("Solteiro")) required.add("birthCertificate");
   if (maritalStatus.includes("Casado")) required.add("marriageCertificate");

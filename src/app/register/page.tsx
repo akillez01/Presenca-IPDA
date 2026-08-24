@@ -7,7 +7,6 @@ import {
     Clock,
     Fingerprint,
     Loader2,
-    Map,
     MapPin,
     Phone,
     Send,
@@ -74,14 +73,8 @@ const createFormFields = (config: any): FieldInfo[] => [
   },
   { name: "pastorName", label: "Nome do Pastor", icon: UserSquare, placeholder: "Digite o nome do pastor" },
   { name: "cfoCourse", label: "Curso", icon: UserSquare, placeholder: "Selecione", options: ["SIM", "NÃO"] },
-  { 
-    name: "region", 
-    label: "Região", 
-    icon: Map, 
-    placeholder: "Digite a região"
-  },
-  { 
-    name: "churchPosition", 
+  {
+    name: "churchPosition",
     label: "Cargo na Igreja", 
     icon: Building, 
     placeholder: "Selecione", 
@@ -160,7 +153,6 @@ function AttendanceFormContent() {
       birthday: "",
       city: "",
       reclassification: undefined,
-      region: "",
       churchPosition: undefined,
       shift: undefined,
       totvs: "",
@@ -172,16 +164,12 @@ function AttendanceFormContent() {
 
   // Organiza os campos em linhas lógicas para melhor visualização
   const formFields = createFormFields(config);
-  // Agrupamento em duas colunas verticais
-  const col1Names: (keyof AttendanceFormValues)[] = [
-    "fullName", "cpf", "pastorName", "region", "city"
-  ];
-  const col2Names: (keyof AttendanceFormValues)[] = [
-    "birthday", "reclassification", "cfoCourse", "churchPosition", "shift"
+  // Grade única de 2 colunas (evita espaços vazios quando o total de campos é ímpar)
+  const mainFieldNames: (keyof AttendanceFormValues)[] = [
+    "fullName", "birthday", "cpf", "reclassification", "pastorName", "cfoCourse", "city", "churchPosition", "shift"
   ];
   const additionalFields: (keyof AttendanceFormValues)[] = ["totvs", "etda", "phone"];
-  const col1Fields = col1Names.map(name => formFields.find(f => f.name === name));
-  const col2Fields = col2Names.map(name => formFields.find(f => f.name === name));
+  const mainFields = mainFieldNames.map(name => formFields.find(f => f.name === name));
 
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -374,86 +362,44 @@ function AttendanceFormContent() {
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 sm:space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-              <div className="flex flex-col gap-3 sm:gap-4">
-                {col1Fields.map((fieldInfo, index) => fieldInfo && (
-                  <FormField
-                    key={fieldInfo.name}
-                    control={form.control}
-                    name={fieldInfo.name}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="flex items-center gap-2">
-                          <fieldInfo.icon className="h-4 w-4 text-muted-foreground" />
-                          {fieldInfo.label}
-                        </FormLabel>
-                        {fieldInfo.inputType === 'date' ? (
-                          <FormControl>
-                            <Input type="date" placeholder={fieldInfo.placeholder} {...field} value={field.value ?? ""} />
-                          </FormControl>
-                        ) : fieldInfo.options ? (
-                           <Select onValueChange={field.onChange} value={field.value ?? ""}>
-                             <FormControl>
-                               <SelectTrigger>
-                                 <SelectValue placeholder={fieldInfo.placeholder} />
-                               </SelectTrigger>
-                             </FormControl>
-                             <SelectContent>
-                               {fieldInfo.options.map((option: string) => (
-                                 <SelectItem key={option} value={option}>{option}</SelectItem>
-                               ))}
-                             </SelectContent>
-                           </Select>
-                        ) : (
-                          <FormControl>
-                            <Input placeholder={fieldInfo.placeholder} {...field} value={field.value ?? ""} />
-                          </FormControl>
-                        )}
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                ))}
-              </div>
-              <div className="flex flex-col gap-4">
-                {col2Fields.map((fieldInfo, index) => fieldInfo && (
-                  <FormField
-                    key={fieldInfo.name}
-                    control={form.control}
-                    name={fieldInfo.name}
-                    render={({ field }) => (
-                      <FormItem className="animate-in fade-in slide-in-from-right duration-500" style={{ animationDelay: `${300 + index * 50}ms` }}>
-                        <FormLabel className="flex items-center gap-2">
-                          <fieldInfo.icon className="h-4 w-4 text-muted-foreground" />
-                          {fieldInfo.label}
-                        </FormLabel>
-                        {fieldInfo.inputType === 'date' ? (
-                          <FormControl>
-                            <Input type="date" placeholder={fieldInfo.placeholder} {...field} value={field.value ?? ""} />
-                          </FormControl>
-                        ) : fieldInfo.options ? (
-                           <Select onValueChange={field.onChange} value={field.value ?? ""}>
-                             <FormControl>
-                               <SelectTrigger>
-                                 <SelectValue placeholder={fieldInfo.placeholder} />
-                               </SelectTrigger>
-                             </FormControl>
-                             <SelectContent>
-                               {fieldInfo.options.map((option: string) => (
-                                 <SelectItem key={option} value={option}>{option}</SelectItem>
-                               ))}
-                             </SelectContent>
-                           </Select>
-                        ) : (
-                          <FormControl>
-                            <Input placeholder={fieldInfo.placeholder} {...field} value={field.value ?? ""} />
-                          </FormControl>
-                        )}
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                ))}
-              </div>
+              {mainFields.map((fieldInfo, index) => fieldInfo && (
+                <FormField
+                  key={fieldInfo.name}
+                  control={form.control}
+                  name={fieldInfo.name}
+                  render={({ field }) => (
+                    <FormItem className="animate-in fade-in slide-in-from-bottom duration-500" style={{ animationDelay: `${index * 50}ms` }}>
+                      <FormLabel className="flex items-center gap-2">
+                        <fieldInfo.icon className="h-4 w-4 text-muted-foreground" />
+                        {fieldInfo.label}
+                      </FormLabel>
+                      {fieldInfo.inputType === 'date' ? (
+                        <FormControl>
+                          <Input type="date" placeholder={fieldInfo.placeholder} {...field} value={field.value ?? ""} />
+                        </FormControl>
+                      ) : fieldInfo.options ? (
+                         <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                           <FormControl>
+                             <SelectTrigger>
+                               <SelectValue placeholder={fieldInfo.placeholder} />
+                             </SelectTrigger>
+                           </FormControl>
+                           <SelectContent>
+                             {fieldInfo.options.map((option: string) => (
+                               <SelectItem key={option} value={option}>{option}</SelectItem>
+                             ))}
+                           </SelectContent>
+                         </Select>
+                      ) : (
+                        <FormControl>
+                          <Input placeholder={fieldInfo.placeholder} {...field} value={field.value ?? ""} />
+                        </FormControl>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ))}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
               {additionalFields.map((fieldName, index) => {

@@ -3,12 +3,14 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { db } from "@/lib/firebase";
 import { collection, deleteDoc, doc, getDocs, orderBy, query, setDoc } from "firebase/firestore";
 import {
   AlertCircle,
   ArrowLeft,
   Camera,
+  Eye,
   FileDown,
   FileText,
   Pencil,
@@ -293,6 +295,7 @@ function triggerBlobDownload(bytes: BlobPart, mimeType: string, fileName: string
 
 type PorteAggregate = {
   porte: ReclassificationOption;
+  nomeIpda: string;
   total: number;
   masculino: number;
   feminino: number;
@@ -302,7 +305,11 @@ type PorteAggregate = {
   viuvos: number;
   idade16a18: number;
   idade19a30: number;
-  idade31a99: number;
+  idade31a50: number;
+  idade51a70: number;
+  idadeAcima70: number;
+  dirigente: string;
+  telefoneDirigente: string;
 };
 
 type ReportHeaderInfo = {
@@ -334,11 +341,22 @@ function calculateAgeFromBrDate(value: string): number | null {
 }
 
 function buildPorteAggregates(records: BaptismRecord[]): PorteAggregate[] {
-  const buckets = new Map<ReclassificationOption, PorteAggregate>(
-    REPORT_PORTE_ORDER.map((porte) => [
-      porte,
-      {
+  type MutableAggregate = PorteAggregate & { dirigenteNames: string[]; dirigentePhones: string[] };
+  const groups = new Map<string, MutableAggregate>();
+
+  records.forEach((record) => {
+    const data = record.formData;
+    const porte = data.sucursalName;
+    if (!porte) return; // registros sem reclassificação selecionada não entram no relatório agregado
+
+    // Uma linha por igreja (cidade da congregação), não uma soma única por porte.
+    const nomeIpda = collapseWhitespace(data.congregationCity) || "-";
+    const key = `${porte}||${nomeIpda}`;
+    let bucket = groups.get(key);
+    if (!bucket) {
+      bucket = {
         porte,
+        nomeIpda,
         total: 0,
         masculino: 0,
         feminino: 0,
@@ -348,16 +366,16 @@ function buildPorteAggregates(records: BaptismRecord[]): PorteAggregate[] {
         viuvos: 0,
         idade16a18: 0,
         idade19a30: 0,
-        idade31a99: 0,
-      },
-    ])
-  );
-
-  records.forEach((record) => {
-    const data = record.formData;
-    const porte = data.sucursalName;
-    const bucket = porte ? buckets.get(porte) : undefined;
-    if (!bucket) return; // registros sem reclassificação selecionada não entram no relatório agregado
+        idade31a50: 0,
+        idade51a70: 0,
+        idadeAcima70: 0,
+        dirigente: "",
+        telefoneDirigente: "",
+        dirigenteNames: [],
+        dirigentePhones: [],
+      };
+      groups.set(key, bucket);
+    }
 
     bucket.total += 1;
     if (data.gender === "Masculino") bucket.masculino += 1;
@@ -372,11 +390,25 @@ function buildPorteAggregates(records: BaptismRecord[]): PorteAggregate[] {
     if (age !== null) {
       if (age >= 16 && age <= 18) bucket.idade16a18 += 1;
       else if (age >= 19 && age <= 30) bucket.idade19a30 += 1;
-      else if (age >= 31) bucket.idade31a99 += 1;
+      else if (age >= 31 && age <= 50) bucket.idade31a50 += 1;
+      else if (age >= 51 && age <= 70) bucket.idade51a70 += 1;
+      else if (age > 70) bucket.idadeAcima70 += 1;
     }
+
+    if (data.dirigenteName) bucket.dirigenteNames.push(data.dirigenteName);
+    if (data.dirigentePhone) bucket.dirigentePhones.push(data.dirigentePhone);
   });
 
-  return REPORT_PORTE_ORDER.map((porte) => buckets.get(porte)!);
+  return REPORT_PORTE_ORDER.flatMap((porte) =>
+    Array.from(groups.values())
+      .filter((bucket) => bucket.porte === porte)
+      .sort((a, b) => a.nomeIpda.localeCompare(b.nomeIpda, "pt-BR"))
+      .map((bucket) => ({
+        ...bucket,
+        dirigente: mostCommonValue(bucket.dirigenteNames),
+        telefoneDirigente: mostCommonValue(bucket.dirigentePhones),
+      }))
+  );
 }
 
 function wrapTextLines(text: string, maxWidth: number, measure: (t: string) => number): string[] {
@@ -402,13 +434,15 @@ function wrapTextLines(text: string, maxWidth: number, measure: (t: string) => n
 
 async function buildAggregateReportPdfBytes(aggregates: PorteAggregate[], header: ReportHeaderInfo) {
   const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([841.89, 595.28]); // A4 paisagem
+  const pageSize: [number, number] = [841.89, 595.28]; // A4 paisagem
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const color = rgb(0.05, 0.05, 0.05);
   const lineColor = rgb(0.35, 0.35, 0.35);
-  const { width } = page.getSize();
   const margin = 30;
+
+  let page = pdfDoc.addPage(pageSize);
+  const { width } = page.getSize();
 
   const text = (value: string, x: number, y: number, opts: { size?: number; bold?: boolean } = {}) => {
     if (!value) return;
@@ -445,52 +479,79 @@ async function buildAggregateReportPdfBytes(aggregates: PorteAggregate[], header
   text(`Cidade: ${header.cidade || "-"}`, margin + 340, cursorY, { size: 10 });
   cursorY -= 28;
 
-  const columns: Array<{ key: keyof PorteAggregate | "nomeIpda" | "dirigente" | "telefoneDirigente"; label: string; width: number }> = [
-    { key: "porte", label: "Porte", width: 66 },
-    { key: "nomeIpda", label: "Nome da IPDA", width: 118 },
-    { key: "total", label: "Qtd. de Batizados", width: 60 },
-    { key: "masculino", label: "Qtd. Masculino", width: 55 },
-    { key: "feminino", label: "Qtd. Feminino", width: 55 },
-    { key: "casados", label: "Casados", width: 48 },
-    { key: "solteiros", label: "Solteiros", width: 48 },
-    { key: "divorciados", label: "Divorciados", width: 52 },
-    { key: "viuvos", label: "Viúvos", width: 44 },
-    { key: "idade16a18", label: "De 16 a 18 anos", width: 58 },
-    { key: "idade19a30", label: "De 19 a 30 anos", width: 58 },
-    { key: "idade31a99", label: "De 31 a 99 anos", width: 58 },
-    { key: "dirigente", label: "Nome do Dirigente", width: 92 },
-    { key: "telefoneDirigente", label: "Telefone do dirigente", width: 82 },
+  const columns: Array<{ key: keyof PorteAggregate; label: string; width: number }> = [
+    { key: "porte", label: "Porte", width: 46 },
+    { key: "nomeIpda", label: "Nome da IPDA", width: 84 },
+    { key: "total", label: "Qtd. de Batizados", width: 44 },
+    { key: "masculino", label: "Qtd. Masculino", width: 40 },
+    { key: "feminino", label: "Qtd. Feminino", width: 40 },
+    { key: "casados", label: "Casados", width: 34 },
+    { key: "solteiros", label: "Solteiros", width: 34 },
+    { key: "divorciados", label: "Divorciados", width: 38 },
+    { key: "viuvos", label: "Viúvos", width: 32 },
+    { key: "idade16a18", label: "De 16 a 18 anos", width: 40 },
+    { key: "idade19a30", label: "De 19 a 30 anos", width: 40 },
+    { key: "idade31a50", label: "De 31 a 50 anos", width: 40 },
+    { key: "idade51a70", label: "De 51 a 70 anos", width: 40 },
+    { key: "idadeAcima70", label: "Acima de 70 anos", width: 40 },
+    { key: "dirigente", label: "Nome do Dirigente", width: 70 },
+    { key: "telefoneDirigente", label: "Telefone do dirigente", width: 60 },
   ];
 
   const tableWidth = columns.reduce((sum, col) => sum + col.width, 0);
   const tableX = (width - tableWidth) / 2;
   const headerHeight = 30;
-  const rowHeight = 22;
+  const rowHeight = 20;
 
-  let colX = tableX;
-  columns.forEach((col) => {
-    page.drawRectangle({
-      x: colX,
-      y: cursorY - headerHeight,
-      width: col.width,
-      height: headerHeight,
-      borderColor: lineColor,
-      borderWidth: 0.75,
+  const drawTableHeader = () => {
+    let colX = tableX;
+    columns.forEach((col) => {
+      page.drawRectangle({
+        x: colX,
+        y: cursorY - headerHeight,
+        width: col.width,
+        height: headerHeight,
+        borderColor: lineColor,
+        borderWidth: 0.75,
+      });
+
+      const lines = wrapTextLines(col.label, col.width - 6, (t) => fontBold.widthOfTextAtSize(t, 7));
+      const startY = cursorY - headerHeight / 2 + ((lines.length - 1) * 8) / 2 + 2;
+      lines.forEach((line, index) => {
+        text(line, colX + 3, startY - index * 8, { size: 7, bold: true });
+      });
+
+      colX += col.width;
     });
 
-    const lines = wrapTextLines(col.label, col.width - 6, (t) => fontBold.widthOfTextAtSize(t, 7));
-    const startY = cursorY - headerHeight / 2 + ((lines.length - 1) * 8) / 2 + 2;
-    lines.forEach((line, index) => {
-      text(line, colX + 3, startY - index * 8, { size: 7, bold: true });
-    });
+    cursorY -= headerHeight;
+  };
 
-    colX += col.width;
-  });
+  drawTableHeader();
 
-  cursorY -= headerHeight;
+  const totals = {
+    total: 0,
+    masculino: 0,
+    feminino: 0,
+    casados: 0,
+    solteiros: 0,
+    divorciados: 0,
+    viuvos: 0,
+    idade16a18: 0,
+    idade19a30: 0,
+    idade31a50: 0,
+    idade51a70: 0,
+    idadeAcima70: 0,
+  };
 
   aggregates.forEach((row) => {
-    colX = tableX;
+    if (cursorY - rowHeight < margin + 30) {
+      page = pdfDoc.addPage(pageSize);
+      cursorY = page.getHeight() - margin;
+      drawTableHeader();
+    }
+
+    let colX = tableX;
     columns.forEach((col) => {
       page.drawRectangle({
         x: colX,
@@ -501,14 +562,28 @@ async function buildAggregateReportPdfBytes(aggregates: PorteAggregate[], header
         borderWidth: 0.75,
       });
 
-      const isBlankColumn = col.key === "nomeIpda" || col.key === "dirigente" || col.key === "telefoneDirigente";
-      const value = isBlankColumn ? "" : String(row[col.key as keyof PorteAggregate]);
-      text(value, colX + 4, cursorY - rowHeight + 7, { size: 8.5 });
+      text(String(row[col.key] ?? ""), colX + 4, cursorY - rowHeight + 6, { size: 8 });
 
       colX += col.width;
     });
     cursorY -= rowHeight;
+
+    totals.total += row.total;
+    totals.masculino += row.masculino;
+    totals.feminino += row.feminino;
+    totals.casados += row.casados;
+    totals.solteiros += row.solteiros;
+    totals.divorciados += row.divorciados;
+    totals.viuvos += row.viuvos;
+    totals.idade16a18 += row.idade16a18;
+    totals.idade19a30 += row.idade19a30;
+    totals.idade31a50 += row.idade31a50;
+    totals.idade51a70 += row.idade51a70;
+    totals.idadeAcima70 += row.idadeAcima70;
   });
+
+  cursorY -= 10;
+  text(`TOTAL DE BATIZADOS: ${totals.total}`, tableX, cursorY, { size: 12, bold: true });
 
   return await pdfDoc.save();
 }
@@ -530,13 +605,15 @@ async function buildAggregateReportXlsxBuffer(aggregates: PorteAggregate[], head
     { width: 10 }, // G Solteiros
     { width: 11 }, // H Divorciados
     { width: 9 }, // I Viúvos
-    { width: 12 }, // J De 16 a 18
-    { width: 12 }, // K De 19 a 30
-    { width: 12 }, // L De 31 a 99
-    { width: 20 }, // M Nome do dirigente
-    { width: 8 }, // N (merge M:O)
-    { width: 8 }, // O
-    { width: 18 }, // P Telefone do dirigente
+    { width: 11 }, // J De 16 a 18
+    { width: 11 }, // K De 19 a 30
+    { width: 11 }, // L De 31 a 50
+    { width: 11 }, // M De 51 a 70
+    { width: 11 }, // N Acima de 70
+    { width: 18 }, // O Nome do dirigente (merge O:Q)
+    { width: 8 }, // P
+    { width: 8 }, // Q
+    { width: 18 }, // R Telefone do dirigente
   ];
 
   const thinBorder = {
@@ -567,43 +644,43 @@ async function buildAggregateReportXlsxBuffer(aggregates: PorteAggregate[], head
   };
 
   // Título
-  sheet.mergeCells("A1:P1");
+  sheet.mergeCells("A1:R1");
   setCell("A1", "RELATÓRIO DE BATISMO", { size: 20, fill: true });
   sheet.getRow(1).height = 28;
 
   // Identificação
   sheet.mergeCells("A2:F2");
   setCell("A2", `Estado: ${header.estado || ""}`, { size: 14, align: false });
-  sheet.mergeCells("H2:L2");
+  sheet.mergeCells("H2:N2");
   setCell("H2", `UF: ${header.uf || ""}`, { size: 14, align: false });
-  sheet.mergeCells("M2:P2");
-  setCell("M2", `Data do Batismo: ${header.dataBatismo || ""}`, { size: 14, align: false });
+  sheet.mergeCells("O2:R2");
+  setCell("O2", `Data do Batismo: ${header.dataBatismo || ""}`, { size: 14, align: false });
 
-  sheet.mergeCells("A3:P3");
+  sheet.mergeCells("A3:R3");
   setCell(
     "A3",
-    "ASSINALE AQUI O PORTE DE SUA IGREJA: Local (  )  Setorial (  )  Estadual (  )  Regional (  )  Casa de Oração (  )  Central (  )",
+    "ASSINALE AQUI O PORTE DE SUA IGREJA: Estadual (  )  Setorial (  )  Central (  )",
     { size: 14, color: "FFFF0000", align: false }
   );
   sheet.getRow(3).height = 20;
 
-  sheet.mergeCells("A4:L4");
+  sheet.mergeCells("A4:N4");
   setCell("A4", `Endereço: ${header.endereco || ""}`, { size: 11, align: false });
-  setCell("M4", `N° ${header.numero || ""}`, { size: 11, align: false });
-  sheet.mergeCells("N4:P4");
-  setCell("N4", `Bairro: ${header.bairro || ""}`, { size: 11, align: false });
+  setCell("O4", `N° ${header.numero || ""}`, { size: 11, align: false });
+  sheet.mergeCells("P4:R4");
+  setCell("P4", `Bairro: ${header.bairro || ""}`, { size: 11, align: false });
 
   sheet.mergeCells("A5:H5");
   setCell("A5", `Responsável: ${header.responsavel || ""}`, { size: 11, align: false });
   sheet.mergeCells("I5:J5");
   setCell("I5", `Tel.: ${header.telefoneResponsavel || ""}`, { size: 11, align: false });
-  sheet.mergeCells("N5:P5");
-  setCell("N5", `Cep: ${header.cep || ""}`, { size: 11, align: false });
+  sheet.mergeCells("P5:R5");
+  setCell("P5", `Cep: ${header.cep || ""}`, { size: 11, align: false });
 
-  sheet.mergeCells("A6:M6");
+  sheet.mergeCells("A6:O6");
   setCell("A6", `Telefone IPDA: ${header.telefoneIpda || ""}`, { size: 11, align: false });
-  sheet.mergeCells("N6:P6");
-  setCell("N6", `Cidade: ${header.cidade || ""}`, { size: 11, align: false });
+  sheet.mergeCells("P6:R6");
+  setCell("P6", `Cidade: ${header.cidade || ""}`, { size: 11, align: false });
 
   // Cabeçalho da tabela
   sheet.mergeCells("A7:C7");
@@ -612,10 +689,10 @@ async function buildAggregateReportXlsxBuffer(aggregates: PorteAggregate[], head
   setCell("D7", "SEXO", { fill: true, size: 13 });
   sheet.mergeCells("F7:I7");
   setCell("F7", "ESTADO CIVIL", { fill: true, size: 13 });
-  sheet.mergeCells("J7:L7");
+  sheet.mergeCells("J7:N7");
   setCell("J7", "IDADE DOS BATIZADOS", { fill: true, size: 13 });
-  sheet.mergeCells("M7:P7");
-  setCell("M7", "", { fill: true, size: 12 });
+  sheet.mergeCells("O7:R7");
+  setCell("O7", "", { fill: true, size: 12 });
   sheet.getRow(7).height = 20;
 
   const headerCells: Array<[string, string]> = [
@@ -630,21 +707,36 @@ async function buildAggregateReportXlsxBuffer(aggregates: PorteAggregate[], head
     ["I8", "Viúvos"],
     ["J8", "De 16 a 18 anos"],
     ["K8", "De 19 a 30 anos"],
-    ["L8", "De 31 a 99 anos"],
+    ["L8", "De 31 a 50 anos"],
+    ["M8", "De 51 a 70 anos"],
+    ["N8", "Acima de 70 anos"],
   ];
   headerCells.forEach(([coord, label]) => setCell(coord, label, { size: 11 }));
-  sheet.mergeCells("M8:O8");
-  setCell("M8", "Nome do Dirigente que levou os candidatos", { size: 11 });
-  setCell("P8", "Telefone do dirigente", { size: 11 });
+  sheet.mergeCells("O8:Q8");
+  setCell("O8", "Nome do Dirigente que levou os candidatos", { size: 11 });
+  setCell("R8", "Telefone do dirigente", { size: 11 });
   sheet.getRow(8).height = 32;
 
-  // Linhas de dados por Reclassificação
+  // Linhas de dados por igreja (porte + Nome da IPDA)
   let rowIndex = 9;
-  const totals = { total: 0, masculino: 0, feminino: 0, casados: 0, solteiros: 0, divorciados: 0, viuvos: 0, idade16a18: 0, idade19a30: 0, idade31a99: 0 };
+  const totals = {
+    total: 0,
+    masculino: 0,
+    feminino: 0,
+    casados: 0,
+    solteiros: 0,
+    divorciados: 0,
+    viuvos: 0,
+    idade16a18: 0,
+    idade19a30: 0,
+    idade31a50: 0,
+    idade51a70: 0,
+    idadeAcima70: 0,
+  };
 
   aggregates.forEach((row) => {
     setCell(`A${rowIndex}`, row.porte, { bold: false });
-    setCell(`B${rowIndex}`, "", { bold: false });
+    setCell(`B${rowIndex}`, row.nomeIpda, { bold: false });
     setCell(`C${rowIndex}`, row.total, { bold: false });
     setCell(`D${rowIndex}`, row.masculino, { bold: false });
     setCell(`E${rowIndex}`, row.feminino, { bold: false });
@@ -654,10 +746,12 @@ async function buildAggregateReportXlsxBuffer(aggregates: PorteAggregate[], head
     setCell(`I${rowIndex}`, row.viuvos, { bold: false });
     setCell(`J${rowIndex}`, row.idade16a18, { bold: false });
     setCell(`K${rowIndex}`, row.idade19a30, { bold: false });
-    setCell(`L${rowIndex}`, row.idade31a99, { bold: false });
-    sheet.mergeCells(`M${rowIndex}:O${rowIndex}`);
-    setCell(`M${rowIndex}`, "", { bold: false });
-    setCell(`P${rowIndex}`, "", { bold: false });
+    setCell(`L${rowIndex}`, row.idade31a50, { bold: false });
+    setCell(`M${rowIndex}`, row.idade51a70, { bold: false });
+    setCell(`N${rowIndex}`, row.idadeAcima70, { bold: false });
+    sheet.mergeCells(`O${rowIndex}:Q${rowIndex}`);
+    setCell(`O${rowIndex}`, row.dirigente, { bold: false });
+    setCell(`R${rowIndex}`, row.telefoneDirigente, { bold: false });
 
     totals.total += row.total;
     totals.masculino += row.masculino;
@@ -668,7 +762,9 @@ async function buildAggregateReportXlsxBuffer(aggregates: PorteAggregate[], head
     totals.viuvos += row.viuvos;
     totals.idade16a18 += row.idade16a18;
     totals.idade19a30 += row.idade19a30;
-    totals.idade31a99 += row.idade31a99;
+    totals.idade31a50 += row.idade31a50;
+    totals.idade51a70 += row.idade51a70;
+    totals.idadeAcima70 += row.idadeAcima70;
 
     rowIndex += 1;
   });
@@ -685,17 +781,19 @@ async function buildAggregateReportXlsxBuffer(aggregates: PorteAggregate[], head
   setCell(`I${rowIndex}`, totals.viuvos, { size: 11 });
   setCell(`J${rowIndex}`, totals.idade16a18, { size: 11 });
   setCell(`K${rowIndex}`, totals.idade19a30, { size: 11 });
-  setCell(`L${rowIndex}`, totals.idade31a99, { size: 11 });
-  sheet.mergeCells(`M${rowIndex}:O${rowIndex}`);
-  setCell(`M${rowIndex}`, "", { size: 11 });
-  setCell(`P${rowIndex}`, "", { size: 11 });
+  setCell(`L${rowIndex}`, totals.idade31a50, { size: 11 });
+  setCell(`M${rowIndex}`, totals.idade51a70, { size: 11 });
+  setCell(`N${rowIndex}`, totals.idadeAcima70, { size: 11 });
+  sheet.mergeCells(`O${rowIndex}:Q${rowIndex}`);
+  setCell(`O${rowIndex}`, "", { size: 11 });
+  setCell(`R${rowIndex}`, "", { size: 11 });
   rowIndex += 2;
 
-  sheet.mergeCells(`A${rowIndex}:P${rowIndex}`);
+  sheet.mergeCells(`A${rowIndex}:R${rowIndex}`);
   setCell(`A${rowIndex}`, totals.total, { size: 20, color: "FFFF0000" });
   rowIndex += 2;
 
-  sheet.mergeCells(`A${rowIndex}:P${rowIndex + 2}`);
+  sheet.mergeCells(`A${rowIndex}:R${rowIndex + 2}`);
   setCell(
     `A${rowIndex}`,
     "Por favor, a planilha deverá ser preenchida e enviada no 1º dia ÚTIL APÓS O BATISMO para ser apresentada à Diretoria neste mesmo dia.",
@@ -777,6 +875,7 @@ export default function BatismoPage() {
   const [records, setRecords] = useState<BaptismRecord[]>([]);
   const [pendingSubmissions, setPendingSubmissions] = useState<BaptismRecord[]>([]);
   const [loadingPending, setLoadingPending] = useState(true);
+  const [viewingDocumentsRecord, setViewingDocumentsRecord] = useState<BaptismRecord | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -1686,6 +1785,7 @@ export default function BatismoPage() {
   // ===========================
   if (!showForm) {
     return (
+      <>
       <div className="mx-auto w-full max-w-6xl space-y-4">
         <Card className="border-blue-200 bg-blue-50/40">
           <CardHeader>
@@ -1751,6 +1851,15 @@ export default function BatismoPage() {
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setViewingDocumentsRecord(pending)}
+                      >
+                        <Eye className="mr-2 h-4 w-4" />
+                        Documentos
+                      </Button>
                       <Button
                         type="button"
                         size="sm"
@@ -2247,7 +2356,16 @@ export default function BatismoPage() {
                           </div>
                         </div>
 
-                        <div className="mt-3 grid grid-cols-2 gap-2">
+                        <div className="mt-3 grid grid-cols-3 gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setViewingDocumentsRecord(record)}
+                            className="w-full"
+                          >
+                            <Eye className="mr-2 h-4 w-4" />
+                            Documentos
+                          </Button>
                           <Button size="sm" variant="outline" onClick={() => handleEditRecord(record)} className="w-full">
                             <Pencil className="mr-2 h-4 w-4" />
                             Corrigir
@@ -2289,6 +2407,10 @@ export default function BatismoPage() {
                             <td className="border p-2">{formatDateTime(record.createdAt)}</td>
                             <td className="border p-2">
                               <div className="flex flex-wrap gap-2">
+                                <Button size="sm" variant="outline" onClick={() => setViewingDocumentsRecord(record)}>
+                                  <Eye className="mr-1 h-4 w-4" />
+                                  Documentos
+                                </Button>
                                 <Button size="sm" variant="outline" onClick={() => handleEditRecord(record)}>
                                   <Pencil className="mr-1 h-4 w-4" />
                                   Corrigir
@@ -2311,6 +2433,69 @@ export default function BatismoPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog
+        open={Boolean(viewingDocumentsRecord)}
+        onOpenChange={(open) => {
+          if (!open) setViewingDocumentsRecord(null);
+        }}
+      >
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Documentos de {viewingDocumentsRecord?.fullName}</DialogTitle>
+            <DialogDescription>Confira se os documentos enviados estão legíveis e corretos.</DialogDescription>
+          </DialogHeader>
+
+          {viewingDocumentsRecord && (
+            <div className="space-y-3">
+              {viewingDocumentsRecord.formData.photoDataUrl && (
+                <div className="rounded-md border border-slate-200 p-3">
+                  <p className="mb-2 text-sm font-medium text-slate-900">Foto</p>
+                  <Image
+                    src={viewingDocumentsRecord.formData.photoDataUrl}
+                    alt={`Foto de ${viewingDocumentsRecord.fullName}`}
+                    width={200}
+                    height={200}
+                    unoptimized
+                    className="h-40 w-32 rounded-md border object-cover"
+                  />
+                </div>
+              )}
+
+              {Object.keys(viewingDocumentsRecord.formData.documents ?? {}).length === 0 ? (
+                <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
+                  Nenhum documento anexado a este cadastro.
+                </div>
+              ) : (
+                Object.values(viewingDocumentsRecord.formData.documents ?? {}).map((meta) =>
+                  meta ? (
+                    <div
+                      key={meta.key}
+                      className="flex items-center justify-between gap-3 rounded-md border border-slate-200 p-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-900">{meta.label}</p>
+                        <p className="truncate text-xs text-slate-500">
+                          {meta.fileName} · {formatFileSize(meta.size)}
+                        </p>
+                      </div>
+                      {meta.downloadUrl ? (
+                        <Button asChild size="sm" variant="outline">
+                          <a href={meta.downloadUrl} target="_blank" rel="noreferrer">
+                            <FileText className="mr-2 h-4 w-4" />
+                            Abrir
+                          </a>
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null
+                )
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
     );
   }
 

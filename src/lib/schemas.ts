@@ -9,7 +9,7 @@ export const attendanceSchema = z.object({
   pastorName: z.string().min(3, { message: "O nome do pastor deve ter pelo menos 3 caracteres." }),
   cfoCourse: z.enum(["SIM", "NÃO"]).optional(),
   birthday: z.string().optional(), // Padronizado para birthday
-  region: z.string().min(2, { message: "A região deve ter pelo menos 2 caracteres." }),
+  region: z.string().optional(),
   churchPosition: z.enum([
     'Conselheiro(a)',
     'Financeiro(a)',
