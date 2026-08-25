@@ -121,3 +121,7 @@ sistema-presenca-ipda.apk
 # Specific sensitive files found
 reuniao-ministerial-firebase-adminsdk-fbsvc-0e7e21e6f7.json
 reuniao-ministerial-firebase-adminsdk-fbsvc-abbe4123aa.json
+
+# Documentos com credenciais reais do servidor/admin (senha SSH, senhas de admin)
+DEPLOY-CONFIG.md
+docs/SISTEMA-COMPLETO.md
