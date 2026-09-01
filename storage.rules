@@ -27,10 +27,19 @@ service firebase.storage {
       allow delete: if request.auth != null;
     }
 
-    // Regra para arquivos de batismo (foto 3x4 + documentos em imagem/PDF)
+    // Regra para arquivos de batismo (foto 3x4 + documentos em imagem/PDF).
+    // Cadastro público (/cadastro-batismo, sem login) faz upload direto aqui
+    // desde a mudança "Cadastro de batismo direto" — por isso "create" é aberto,
+    // igual ao padrão já usado em batismo-pending-files. Leitura/edição/exclusão
+    // continuam exigindo login da equipe.
     match /batismo-files/{recordId}/{allPaths=**} {
       allow read: if request.auth != null;
-      allow create, update: if request.auth != null
+      allow create: if request.resource.size < 10 * 1024 * 1024
+                       && (
+                         request.resource.contentType.matches('image/.*') ||
+                         request.resource.contentType == 'application/pdf'
+                       );
+      allow update: if request.auth != null
                             && request.resource.size < 10 * 1024 * 1024
                             && (
                               request.resource.contentType.matches('image/.*') ||
