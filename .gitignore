@@ -125,3 +125,7 @@ reuniao-ministerial-firebase-adminsdk-fbsvc-abbe4123aa.json
 # Documentos com credenciais reais do servidor/admin (senha SSH, senhas de admin)
 DEPLOY-CONFIG.md
 docs/SISTEMA-COMPLETO.md
+
+# Virtualenv Python local (não deve ir pro controle de versão — caminhos
+# absolutos embutidos quebram se a pasta do projeto for movida/renomeada)
+firebase-env/
