@@ -280,12 +280,29 @@ export function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Certidão de nascimento só é cobrada de solteiro(a) menor de idade — para
+// solteiro(a) adulto, RG/CPF já bastam como identificação.
+export function isMinorByBirthDate(birthDate?: string): boolean {
+  const parts = parseDateParts(birthDate || "");
+  if (!parts || !isValidDateParts(parts.day, parts.month, parts.year)) return false;
+
+  const birth = new Date(Number(parts.year), Number(parts.month) - 1, Number(parts.day));
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const monthDiff = now.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) {
+    age -= 1;
+  }
+  return age < 18;
+}
+
 export function getDocumentChecklist(
-  maritalStatus: BaptismFormData["maritalStatus"]
+  maritalStatus: BaptismFormData["maritalStatus"],
+  birthDate?: string
 ): BaptismDocumentChecklistItem[] {
   const required = new Set<BaptismDocumentKey>(["rgCpfCopy", "residenceProof"]);
 
-  if (maritalStatus.includes("Solteiro")) required.add("birthCertificate");
+  if (maritalStatus.includes("Solteiro") && isMinorByBirthDate(birthDate)) required.add("birthCertificate");
   if (maritalStatus.includes("Casado")) required.add("marriageCertificate");
   if (maritalStatus.includes("Viúvo")) {
     required.add("marriageCertificate");

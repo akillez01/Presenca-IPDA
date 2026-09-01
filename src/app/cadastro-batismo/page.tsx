@@ -204,7 +204,7 @@ export default function CadastroBatismoPublicoPage() {
     setSubmitError([]);
   }
 
-  const documentChecklist = getDocumentChecklist(form.maritalStatus);
+  const documentChecklist = getDocumentChecklist(form.maritalStatus, form.birthDate);
 
   if (submittedForm) {
     return (

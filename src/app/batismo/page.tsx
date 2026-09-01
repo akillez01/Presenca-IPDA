@@ -226,7 +226,9 @@ function getErrorDetail(error: unknown) {
 }
 
 function getRequiredDocumentSummary(record: BaptismRecord) {
-  const requiredItems = getDocumentChecklist(record.formData.maritalStatus).filter((item) => item.required);
+  const requiredItems = getDocumentChecklist(record.formData.maritalStatus, record.formData.birthDate).filter(
+    (item) => item.required
+  );
   const attachedRequiredCount = requiredItems.filter((item) => Boolean(record.formData.documents?.[item.key])).length;
   const missingRequiredCount = Math.max(0, requiredItems.length - attachedRequiredCount);
 
@@ -929,7 +931,10 @@ export default function BatismoPage() {
   );
   const normalizedForm = useMemo(() => normalizeFormForDocument(form), [form]);
   const formAnalysis = useMemo(() => analyzeFormForDocument(normalizedForm), [normalizedForm]);
-  const documentChecklist = useMemo(() => getDocumentChecklist(form.maritalStatus), [form.maritalStatus]);
+  const documentChecklist = useMemo(
+    () => getDocumentChecklist(form.maritalStatus, form.birthDate),
+    [form.maritalStatus, form.birthDate]
+  );
   const errorFields = useMemo(() => new Set(formAnalysis.errors.map((issue) => issue.field)), [formAnalysis.errors]);
   const warningFields = useMemo(
     () =>
