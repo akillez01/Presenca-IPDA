@@ -47,7 +47,7 @@ const nextConfig: NextConfig = {
   
   // Configurações de imagem otimizadas para Plesk
   images: {
-    unoptimized: true, // Necessário para static export
+    unoptimized: isPleskBuild, // Necessário apenas para static export (Plesk); Vercel otimiza normalmente
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
     formats: ['image/webp'],
