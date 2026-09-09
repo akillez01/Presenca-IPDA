@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { SedeEstadualRecord } from "@/app/admin/sede-estadual/page";
+import type { SedeEstadualRecord } from "@/lib/sede-estadual-form";
 import { Cake, Gift, Sparkles, User } from "lucide-react";
 import Image from "next/image";
 import { useMemo } from "react";

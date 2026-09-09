@@ -30,10 +30,14 @@ service firebase.storage {
     // Regra para arquivos de batismo (foto 3x4 + documentos em imagem/PDF).
     // Cadastro público (/cadastro-batismo, sem login) faz upload direto aqui
     // desde a mudança "Cadastro de batismo direto" — por isso "create" é aberto,
-    // igual ao padrão já usado em batismo-pending-files. Leitura/edição/exclusão
-    // continuam exigindo login da equipe.
+    // igual ao padrão já usado em batismo-pending-files. A leitura também precisa
+    // ser aberta: o próprio formulário público chama getDownloadURL() logo após o
+    // upload (para persistir a foto/documento no registro), e isso exige permissão
+    // de leitura mesmo sem login. O path inclui um recordId aleatório e cada
+    // arquivo tem um download token próprio do Storage, então não é enumerável;
+    // edição/exclusão continuam exigindo login da equipe.
     match /batismo-files/{recordId}/{allPaths=**} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow create: if request.resource.size < 10 * 1024 * 1024
                        && (
                          request.resource.contentType.matches('image/.*') ||
@@ -61,13 +65,21 @@ service firebase.storage {
       allow update, delete: if request.auth != null;
     }
 
-    // Regra para arquivos da Sede Estadual (foto 3x4)
-    // Cadastro é feito só pelo painel administrativo, por isso todo acesso exige equipe autorizada.
+    // Regra para arquivos da Sede Estadual (foto 3x4).
+    // Cadastro público (/cadastro-sede-estadual, sem login) sobe a foto direto
+    // aqui, igual ao padrão já usado em batismo-files — "create" fica aberto por
+    // um período limitado (~90 dias a partir de 2026-09-01, expira em 2026-12-01).
+    // A leitura também precisa ser aberta: o formulário público chama
+    // getDownloadURL() logo após o upload, para persistir a foto no registro.
     match /sede-estadual-files/{recordId}/{allPaths=**} {
-      allow read: if isAuthorizedStaff();
-      allow create, update: if isAuthorizedStaff()
-                            && request.resource.size < 10 * 1024 * 1024
-                            && request.resource.contentType.matches('image/.*');
+      allow read: if true;
+      allow create: if (
+        isAuthorizedStaff() || request.time < timestamp.date(2026, 12, 1)
+      ) && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow update: if isAuthorizedStaff()
+                    && request.resource.size < 10 * 1024 * 1024
+                    && request.resource.contentType.matches('image/.*');
       allow delete: if isAuthorizedStaff();
     }
 

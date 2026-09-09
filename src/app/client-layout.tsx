@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 const DEBUG = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_DEBUG === 'true';
 
 // Rotas públicas: acessíveis sem login, sem o menu/sidebar interno do sistema.
-const PUBLIC_PATHS: string[] = ['/cadastro-batismo'];
+const PUBLIC_PATHS: string[] = ['/cadastro-batismo', '/cadastro-sede-estadual'];
 
 // O build do Plesk usa trailingSlash: true, então em produção o pathname vem
 // com barra final (ex.: "/login/"); em dev/local vem sem barra.

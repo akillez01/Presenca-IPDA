@@ -58,6 +58,7 @@ export default function SystemMonitoringPanel() {
   const [auditStats, setAuditStats] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [backupsUnavailable, setBackupsUnavailable] = useState(false);
 
   // Carregar status do sistema
   useEffect(() => {
@@ -73,8 +74,18 @@ export default function SystemMonitoringPanel() {
       setIsLoading(true);
       setError(null);
 
-      // Carregar dados de backup
-      const backupList = await backupSystem.listBackups();
+      // Carregar dados de backup. Isolado do restante: nesta implantação (export
+      // estático no Plesk) a rota /api/admin/backups não existe, e isso não pode
+      // travar rate limiting/auditoria, que não dependem dela.
+      let backupList: Awaited<ReturnType<typeof backupSystem.listBackups>> = [];
+      try {
+        backupList = await backupSystem.listBackups();
+        setBackupsUnavailable(false);
+      } catch (backupError) {
+        console.warn('Backup manual indisponível neste ambiente.', backupError);
+        setBackupsUnavailable(true);
+      }
+
       const totalSize = backupList.reduce((sum, backup) => sum + backup.fileSize, 0);
 
       // Carregar métricas de rate limiting
@@ -271,21 +282,25 @@ export default function SystemMonitoringPanel() {
             <Database className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{systemStatus.backups.total}</div>
+            <div className="text-2xl font-bold">{backupsUnavailable ? '—' : systemStatus.backups.total}</div>
             <p className="text-xs text-gray-600">
-              {systemStatus.backups.lastBackup
-                ? `Último: ${formatDate(systemStatus.backups.lastBackup)}`
-                : 'Nenhum backup encontrado'
+              {backupsUnavailable
+                ? 'Indisponível neste ambiente'
+                : systemStatus.backups.lastBackup
+                  ? `Último: ${formatDate(systemStatus.backups.lastBackup)}`
+                  : 'Nenhum backup encontrado'
               }
             </p>
             <div className="flex items-center mt-2">
-              {systemStatus.backups.success ? (
+              {backupsUnavailable ? (
+                <AlertTriangle className="h-4 w-4 text-amber-500 mr-1" />
+              ) : systemStatus.backups.success ? (
                 <CheckCircle className="h-4 w-4 text-green-600 mr-1" />
               ) : (
                 <AlertTriangle className="h-4 w-4 text-red-600 mr-1" />
               )}
               <span className="text-xs">
-                {systemStatus.backups.totalSize}
+                {backupsUnavailable ? 'Ver backup-status no servidor' : systemStatus.backups.totalSize}
               </span>
             </div>
           </CardContent>
@@ -346,21 +361,36 @@ export default function SystemMonitoringPanel() {
         <TabsContent value="backups" className="space-y-4">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold">Gerenciamento de Backups</h3>
-            <Button onClick={handleCreateBackup} disabled={isLoading}>
+            <Button onClick={handleCreateBackup} disabled={isLoading || backupsUnavailable}>
               <Database className="h-4 w-4 mr-2" />
               Criar Backup
             </Button>
           </div>
+
+          {backupsUnavailable && (
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                Backup manual pelo painel não está disponível neste ambiente (build estático hospedado
+                no Plesk). O backup automático continua rodando agendado no servidor
+                (server-backup-scheduler.js via PM2).
+              </AlertDescription>
+            </Alert>
+          )}
 
           <div className="grid gap-4">
             {backups.length === 0 ? (
               <Card>
                 <CardContent className="p-6 text-center">
                   <Database className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-                  <p className="text-gray-600">Nenhum backup encontrado</p>
-                  <Button onClick={handleCreateBackup} className="mt-4">
-                    Criar Primeiro Backup
-                  </Button>
+                  <p className="text-gray-600">
+                    {backupsUnavailable ? 'Lista de backups indisponível neste ambiente' : 'Nenhum backup encontrado'}
+                  </p>
+                  {!backupsUnavailable && (
+                    <Button onClick={handleCreateBackup} className="mt-4">
+                      Criar Primeiro Backup
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             ) : (
