@@ -24,6 +24,7 @@ import {
   getDocumentChecklist,
   type IssueField,
   inferDocumentMimeType,
+  MAX_DOCUMENT_SIZE_BYTES,
   normalizeFormForDocument,
   RECLASSIFICATION_OPTIONS,
   sanitizeFileName,
@@ -101,6 +102,13 @@ export default function CadastroBatismoPublicoPage() {
     const accepted = file.type.startsWith("image/") || file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
     if (!accepted) {
       alert("Envie um PDF ou imagem para este documento.");
+      return;
+    }
+
+    if (file.size >= MAX_DOCUMENT_SIZE_BYTES) {
+      alert(
+        `Este arquivo tem ${(file.size / (1024 * 1024)).toFixed(1)} MB, acima do limite de ${MAX_DOCUMENT_SIZE_BYTES / (1024 * 1024)} MB. Reduza o tamanho do PDF/imagem e tente novamente.`
+      );
       return;
     }
 
@@ -660,7 +668,7 @@ export default function CadastroBatismoPublicoPage() {
           <CardHeader>
             <CardTitle className="text-lg">Documentos</CardTitle>
             <CardDescription>
-              Anexe os documentos abaixo. Os marcados como obrigatórios mudam conforme o estado civil.
+              Anexe os documentos abaixo (máximo {MAX_DOCUMENT_SIZE_BYTES / (1024 * 1024)} MB por arquivo). Os marcados como obrigatórios mudam conforme o estado civil.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">

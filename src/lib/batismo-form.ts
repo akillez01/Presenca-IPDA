@@ -22,6 +22,9 @@ export const BAPTISM_STORAGE_ROOT = "batismo-files";
 export const BAPTISM_PENDING_COLLECTION = "baptism_public_submissions";
 export const BAPTISM_PENDING_STORAGE_ROOT = "batismo-pending-files";
 
+// Precisa bater com o limite em storage.rules (batismo-files / batismo-pending-files).
+export const MAX_DOCUMENT_SIZE_BYTES = 20 * 1024 * 1024;
+
 // Opções fixas do campo "Reclassificação" (porte da igreja para o relatório de batismo).
 export const RECLASSIFICATION_OPTIONS = [
   "Local",

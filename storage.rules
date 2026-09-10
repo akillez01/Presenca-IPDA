@@ -38,13 +38,13 @@ service firebase.storage {
     // edição/exclusão continuam exigindo login da equipe.
     match /batismo-files/{recordId}/{allPaths=**} {
       allow read: if true;
-      allow create: if request.resource.size < 10 * 1024 * 1024
+      allow create: if request.resource.size < 20 * 1024 * 1024
                        && (
                          request.resource.contentType.matches('image/.*') ||
                          request.resource.contentType == 'application/pdf'
                        );
       allow update: if request.auth != null
-                            && request.resource.size < 10 * 1024 * 1024
+                            && request.resource.size < 20 * 1024 * 1024
                             && (
                               request.resource.contentType.matches('image/.*') ||
                               request.resource.contentType == 'application/pdf'
@@ -57,7 +57,7 @@ service firebase.storage {
     // só a equipe consegue ver ou baixar o que foi enviado.
     match /batismo-pending-files/{recordId}/{allPaths=**} {
       allow read: if request.auth != null;
-      allow create: if request.resource.size < 10 * 1024 * 1024
+      allow create: if request.resource.size < 20 * 1024 * 1024
                        && (
                          request.resource.contentType.matches('image/.*') ||
                          request.resource.contentType == 'application/pdf'

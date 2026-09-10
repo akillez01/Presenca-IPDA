@@ -42,6 +42,7 @@ import {
   BAPTISM_PENDING_COLLECTION,
   BAPTISM_PENDING_STORAGE_ROOT,
   BAPTISM_STORAGE_ROOT,
+  MAX_DOCUMENT_SIZE_BYTES,
   type BaptismDocumentKey,
   type BaptismDocumentMeta,
   type BaptismFormData,
@@ -1357,6 +1358,13 @@ export default function BatismoPage() {
     const accepted = file.type.startsWith("image/") || file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
     if (!accepted) {
       alert("Envie um PDF ou imagem para este documento.");
+      return;
+    }
+
+    if (file.size >= MAX_DOCUMENT_SIZE_BYTES) {
+      alert(
+        `Este arquivo tem ${(file.size / (1024 * 1024)).toFixed(1)} MB, acima do limite de ${MAX_DOCUMENT_SIZE_BYTES / (1024 * 1024)} MB. Reduza o tamanho do PDF/imagem e tente novamente.`
+      );
       return;
     }
 
@@ -2749,7 +2757,7 @@ export default function BatismoPage() {
                 <div>
                   <div className="text-sm font-semibold text-slate-900">Documentos para enviar</div>
                   <p className="text-xs text-slate-600">
-                    Anexe PDF, imagem da galeria ou tire uma foto na hora. Os itens marcados como obrigatórios mudam conforme o estado civil.
+                    Anexe PDF, imagem da galeria ou tire uma foto na hora (máximo {MAX_DOCUMENT_SIZE_BYTES / (1024 * 1024)} MB por arquivo). Os itens marcados como obrigatórios mudam conforme o estado civil.
                   </p>
                 </div>
                 <div className="text-xs text-slate-600">
