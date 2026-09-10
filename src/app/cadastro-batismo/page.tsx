@@ -693,7 +693,9 @@ export default function CadastroBatismoPublicoPage() {
                           </span>
                         )}
                       </div>
-                      <p className="mt-1 text-xs text-slate-600">{item.description}</p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {item.description} (máximo {MAX_DOCUMENT_SIZE_BYTES / (1024 * 1024)} MB)
+                      </p>
                       {meta && <p className="mt-1 text-xs text-slate-500">{meta.fileName}</p>}
                     </div>
                     <div>
