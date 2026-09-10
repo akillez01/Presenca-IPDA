@@ -300,6 +300,9 @@ export default function CadastroSedeEstadualPublicoPage() {
 
             <div>
               <label className="text-xs font-medium">Fotografia 3x4</label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Envie uma imagem de até 10 MB. A foto é redimensionada automaticamente antes do envio.
+              </p>
               <div className="mt-2 flex items-center gap-4">
                 {form.photoDataUrl ? (
                   <Image

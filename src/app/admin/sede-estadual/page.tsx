@@ -824,6 +824,9 @@ export default function SedeEstadualPage() {
 
               <div>
                 <Label>Foto 3x4</Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Imagem de até 10 MB (redimensionada automaticamente antes do envio).
+                </p>
                 <div className="mt-1 flex flex-col items-start gap-2 rounded-lg border bg-slate-50 p-3">
                   {form.photoDataUrl ? (
                     <Image

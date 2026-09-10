@@ -99,6 +99,18 @@ function getMysqlConfig(credentials) {
   };
 }
 
+function getPleskConfig(credentials) {
+  const plesk = ensureObject(credentials.plesk, 'plesk');
+
+  return {
+    host: ensureString(plesk.host, 'plesk.host'),
+    sshUser: ensureString(plesk.sshUser, 'plesk.sshUser'),
+    sshPassword: ensureString(plesk.sshPassword, 'plesk.sshPassword'),
+    remotePath: ensureString(plesk.remotePath, 'plesk.remotePath'),
+    domain: typeof plesk.domain === 'string' ? plesk.domain : undefined,
+  };
+}
+
 function getUserByKey(credentials, key, section = 'users') {
   const collection = ensureObject(credentials[section], section);
   const user = collection[key];
@@ -122,6 +134,7 @@ module.exports = {
   getFirebaseAdminConfig,
   getFirebaseClientConfig,
   getMysqlConfig,
+  getPleskConfig,
   getUserByKey,
   getUsersByKeys,
 };
