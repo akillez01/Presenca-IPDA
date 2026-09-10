@@ -2658,6 +2658,9 @@ export default function BatismoPage() {
 
             <div>
               <label className="text-xs font-medium">Fotografia 3x4 (obrigatória)</label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Envie uma imagem de até 10 MB. A foto é redimensionada automaticamente antes do envio.
+              </p>
               <input
                 ref={photoInputRef}
                 className="hidden"
