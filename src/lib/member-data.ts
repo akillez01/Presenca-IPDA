@@ -176,7 +176,7 @@ export function extractMemberProfileFields(
 
 export async function upsertMemberProfile(
   data: Partial<AttendanceRecord> | AttendanceFormValues,
-  options?: { lastPresenceAt?: Date | null }
+  options?: { lastPresenceAt?: Date | null; knownExisting?: boolean }
 ) {
   const profile = extractMemberProfileFields(data);
   if (!profile.cpf) {
@@ -184,6 +184,24 @@ export async function upsertMemberProfile(
   }
 
   const memberRef = doc(db, "members", profile.cpf);
+
+  // Caminho rápido (registro de presença): o perfil já existe, então basta um
+  // setDoc com merge — sem leituras antes/depois e sem invalidar o cache do diretório.
+  if (options?.knownExisting) {
+    await setDoc(
+      memberRef,
+      {
+        ...profile,
+        updatedAt: Timestamp.now(),
+        ...(options.lastPresenceAt ? { lastPresenceAt: Timestamp.fromDate(options.lastPresenceAt) } : {}),
+        memberId: profile.cpf,
+        sourceCollection: "members",
+      },
+      { merge: true }
+    );
+    return null;
+  }
+
   const memberSnap = await getDoc(memberRef);
   const existingData = memberSnap.exists() ? (memberSnap.data() as FirestoreLikeRecord) : null;
   const createdAt = toDate(existingData?.createdAt) ?? new Date();

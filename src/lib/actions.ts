@@ -158,18 +158,22 @@ export async function registerAttendanceByCpf(
 
   const sessionRecord = await getAttendanceByCpfForSession(cleanCpf, normalizedShift, timestamp);
 
+  const memberProfileExists = member.sourceCollection === "members";
+
   if (sessionRecord) {
-    await updateAttendanceStatusBase(sessionRecord.id, status, absentReason, timestamp);
-    await upsertMemberProfile(
-      {
-        ...member,
-        cpf: cleanCpf,
-        shift: normalizedShift,
-        status,
-        absentReason,
-      },
-      { lastPresenceAt: timestamp }
-    );
+    await Promise.all([
+      updateAttendanceStatusBase(sessionRecord.id, status, absentReason, timestamp),
+      upsertMemberProfile(
+        {
+          ...member,
+          cpf: cleanCpf,
+          shift: normalizedShift,
+          status,
+          absentReason,
+        },
+        { lastPresenceAt: timestamp, knownExisting: memberProfileExists }
+      ),
+    ]);
 
     return {
       success: true,
@@ -196,18 +200,19 @@ export async function registerAttendanceByCpf(
     timestamp
   );
 
-  const created = await createAttendanceSessionRecord(payload, timestamp, "update");
-
-  await upsertMemberProfile(
-    {
-      ...member,
-      cpf: cleanCpf,
-      shift: normalizedShift,
-      status,
-      absentReason,
-    },
-    { lastPresenceAt: timestamp }
-  );
+  const [created] = await Promise.all([
+    createAttendanceSessionRecord(payload, timestamp, "update"),
+    upsertMemberProfile(
+      {
+        ...member,
+        cpf: cleanCpf,
+        shift: normalizedShift,
+        status,
+        absentReason,
+      },
+      { lastPresenceAt: timestamp, knownExisting: memberProfileExists }
+    ),
+  ]);
 
   return {
     success: true,

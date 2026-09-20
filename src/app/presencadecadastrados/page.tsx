@@ -37,6 +37,19 @@ function getTodayManausInputDate() {
   }).format(new Date());
 }
 
+// Janela padrão de carregamento do histórico (dias). Períodos anteriores são
+// carregados sob demanda quando o usuário filtra por uma data/mês mais antigo.
+const DEFAULT_HISTORY_WINDOW_DAYS = 60;
+const SEARCH_DEBOUNCE_MS = 250;
+
+function shiftInputDate(inputDate: string, days: number) {
+  const [y, m, d] = inputDate.split("-").map(Number);
+  const shifted = new Date(Date.UTC(y, m - 1, d + days));
+  return shifted.toISOString().slice(0, 10);
+}
+
+const DAY_KEY_FORMATTER = new Intl.DateTimeFormat("pt-BR");
+
 function parseDateSafely(value: unknown): Date | null {
   if (!value) return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
@@ -190,6 +203,8 @@ export default function PresencaCadastradosPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [loadedFrom, setLoadedFrom] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("todos");
   const [regionFilter, setRegionFilter] = useState("__all__");
   const [dateFilter, setDateFilter] = useState(""); // ✅ Novo filtro de data
@@ -222,22 +237,27 @@ export default function PresencaCadastradosPage() {
     return new Date(date.toLocaleString("en-US", { timeZone: "America/Manaus" }));
   }
 
-  async function fetchRecords() {
+  async function fetchRecords(options?: { from?: string; reloadDirectory?: boolean }) {
     if (!authLoading && !user) {
       router.replace("/login");
       return;
     }
 
+    const from = options?.from ?? loadedFrom ?? shiftInputDate(getTodayManausInputDate(), -DEFAULT_HISTORY_WINDOW_DAYS);
+    const reloadDirectory = options?.reloadDirectory ?? true;
+
     setLoading(true);
     try {
       const [data, adminDirectory] = await Promise.all([
-        getAttendanceRecords(),
-        getMemberDirectoryRecordsViaApi(),
+        getAttendanceRecords({ startDate: from, endDate: shiftInputDate(getTodayManausInputDate(), 1) }),
+        reloadDirectory ? getMemberDirectoryRecordsViaApi() : Promise.resolve(null),
       ]);
 
-      let directory: AttendanceRecord[] = adminDirectory;
+      setLoadedFrom(from);
 
-      if (directory.length === 0) {
+      let directory: AttendanceRecord[] | null = adminDirectory;
+
+      if (directory && directory.length === 0) {
         try {
           directory = await getMemberDirectoryRecords();
         } catch (directoryError) {
@@ -245,7 +265,7 @@ export default function PresencaCadastradosPage() {
         }
       }
 
-      if (directory.length === 0) {
+      if (directory && directory.length === 0) {
         console.warn("Diretorio de membros indisponivel no momento. Somente registros de presenca estao visiveis.");
       }
 
@@ -270,18 +290,20 @@ export default function PresencaCadastradosPage() {
         setJustificativas({});
       }
 
-      const membersMap = new Map<string, AttendanceRecord>();
-      directory.forEach((member) => {
-        if (member.cpf) {
-          membersMap.set(member.cpf, member);
-        }
+      setAllMembers((prev) => {
+        const membersMap = directory ? new Map<string, AttendanceRecord>() : new Map(prev);
+        directory?.forEach((member) => {
+          if (member.cpf) {
+            membersMap.set(member.cpf, member);
+          }
+        });
+        data.forEach((record) => {
+          if (record.cpf && !membersMap.has(record.cpf)) {
+            membersMap.set(record.cpf, record);
+          }
+        });
+        return membersMap;
       });
-      data.forEach((record) => {
-        if (record.cpf && !membersMap.has(record.cpf)) {
-          membersMap.set(record.cpf, record);
-        }
-      });
-      setAllMembers(membersMap);
 
       setError(null);
     } catch (err) {
@@ -292,9 +314,50 @@ export default function PresencaCadastradosPage() {
     }
   }
 
+  // Aplica o resultado de registerAttendanceByCpf no estado local, sem reler o banco.
+  function applyRegistrationResult(
+    result: { id?: string; record?: AttendanceRecord },
+    status: string,
+    justification: string
+  ) {
+    const saved = result.record;
+    if (!saved || !result.id) return;
+    const savedId = result.id;
+
+    setRecords((prev) => {
+      const index = prev.findIndex((item) => item.id === savedId);
+      if (index === -1) return [saved, ...prev];
+      const next = prev.slice();
+      next[index] = { ...prev[index], ...saved };
+      return next;
+    });
+    setAttendanceStatus((prev) => ({ ...prev, [savedId]: status }));
+    setJustificativas((prev) => {
+      const next = { ...prev };
+      if (justification) next[savedId] = justification;
+      else delete next[savedId];
+      return next;
+    });
+  }
+
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Se o filtro de data/mês aponta para antes da janela carregada, amplia o histórico.
+  useEffect(() => {
+    if (!loadedFrom || loading) return;
+    const candidates = [dateFilter, monthFilter ? `${monthFilter}-01` : ""].filter(Boolean);
+    const needed = candidates.sort()[0];
+    if (needed && needed < loadedFrom) {
+      fetchRecords({ from: needed, reloadDirectory: false });
+    }
+  }, [dateFilter, monthFilter, loadedFrom]);
 
   useEffect(() => {
     if (authLoading) {
@@ -332,7 +395,7 @@ export default function PresencaCadastradosPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, statusFilter, regionFilter, dateFilter, monthFilter]);
+  }, [debouncedSearch, statusFilter, regionFilter, dateFilter, monthFilter]);
 
   useEffect(() => {
     if (selectedRecordId && !records.some((record) => record.id === selectedRecordId)) {
@@ -381,7 +444,7 @@ Clique OK para confirmar ou Cancelar para abortar.`);
         return;
       }
 
-      await fetchRecords();
+      applyRegistrationResult(result, statusEscolhido, justificativa || "");
 
       setError(null);
       alert(`✅ Presença ${statusEscolhido.toLowerCase()} registrada com sucesso para ${nomePessoa}!`);
@@ -428,6 +491,7 @@ Clique OK para confirmar ou Cancelar para abortar.`);
           if (!result.success) {
             throw new Error(result.error || "Falha ao registrar presença.");
           }
+          applyRegistrationResult(result, statusAtual, justificativaAtual);
           successCount++;
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : "";
@@ -442,7 +506,6 @@ Clique OK para confirmar ou Cancelar para abortar.`);
       });
 
       await Promise.all(promises);
-      await fetchRecords();
 
       setError(null);
       
@@ -591,7 +654,7 @@ Clique OK para confirmar ou Cancelar para abortar.`);
 
       setEditPhotoSelection(null);
       setEditPhotoMarkedForRemoval(false);
-      await fetchRecords();
+      await fetchRecords({ reloadDirectory: false });
 
       setError(null);
       alert("Dados salvos com sucesso!");
@@ -748,7 +811,7 @@ Backup de proteção criado: ${backupResult.metadata.id}
 Recarregue a página para ver o estado atualizado.`);
       }
 
-      await fetchRecords();
+      await fetchRecords({ reloadDirectory: false });
     } catch (err) {
       console.error("Erro ao desfazer registros de hoje:", err);
       setError("Erro ao desfazer registros de hoje. Verifique a conexão com o Firebase.");
@@ -757,33 +820,69 @@ Recarregue a página para ver o estado atualizado.`);
     }
   }
 
+  // Índices pré-calculados (uma vez por carga de dados, não a cada tecla digitada)
+  const recordIndex = useMemo(() => {
+    const index = new Map<string, { dayKey: string; haystack: string }>();
+    records.forEach((record) => {
+      const dayKey = record.timestamp ? DAY_KEY_FORMATTER.format(new Date(record.timestamp)) : "";
+      const haystack = [
+        record.fullName,
+        record.cpf,
+        record.region,
+        record.churchPosition,
+        record.pastorName,
+        record.city,
+        record.shift,
+        record.reclassification,
+        dayKey,
+        record.absentReason,
+      ]
+        .map((field) => normalizeSearchText(field || ""))
+        .join("|");
+      index.set(record.id, { dayKey, haystack });
+    });
+    return index;
+  }, [records]);
+
+  const memberHaystacks = useMemo(() => {
+    const index = new Map<string, string>();
+    allMembers.forEach((member, cpf) => {
+      index.set(
+        cpf,
+        [member.fullName, member.cpf, member.region, member.churchPosition, member.pastorName]
+          .map((field) => normalizeSearchText(field || ""))
+          .join("|")
+      );
+    });
+    return index;
+  }, [allMembers]);
+
   const filteredRecords = useMemo(() => {
-    const normalizedTerm = normalizeSearchText(search);
+    const normalizedTerm = normalizeSearchText(debouncedSearch);
     const shouldShowAbsentWithSearch = statusFilter === "Ausente" || (statusFilter === "todos" && normalizedTerm.length > 0);
     const targetDate = dateFilter || getTodayManausInputDate();
+    const targetDayKey = DAY_KEY_FORMATTER.format(new Date(targetDate + "T00:00:00"));
+    const regionTerm = regionFilter !== "__all__" ? regionFilter.toLowerCase() : "";
     let absentVirtualRecords: AttendanceRecord[] = [];
     let filtered: AttendanceRecord[] = [];
 
     if (shouldShowAbsentWithSearch) {
       // CPFs dos membros que JÁ registraram presença no dia específico
       const registeredCPFs = new Set<string>();
-      records.forEach(r => {
-        if (!r.timestamp) return;
-        
-        const recordDate = new Date(r.timestamp);
-        const filterDate = new Date(targetDate + "T00:00:00");
-        const recordDateStr = recordDate.toLocaleDateString("pt-BR");
-        const filterDateStr = filterDate.toLocaleDateString("pt-BR");
-        
-        if (recordDateStr === filterDateStr && r.cpf) {
+      records.forEach((r) => {
+        if (r.cpf && recordIndex.get(r.id)?.dayKey === targetDayKey) {
           registeredCPFs.add(r.cpf);
         }
       });
-      
-      // Criar registros virtuais para membros que NÃO registraram no dia
-      absentVirtualRecords = Array.from(allMembers.entries())
-        .filter(([cpf]) => cpf && !registeredCPFs.has(cpf))
-        .map(([cpf, member]) => ({
+
+      // Registros virtuais só para membros ausentes que passam em região/busca
+      const targetTimestamp = new Date(targetDate + "T00:00:00");
+      allMembers.forEach((member, cpf) => {
+        if (!cpf || registeredCPFs.has(cpf)) return;
+        if (regionTerm && (member.region || "").toLowerCase() !== regionTerm) return;
+        if (normalizedTerm && !(memberHaystacks.get(cpf) ?? "").includes(normalizedTerm)) return;
+
+        absentVirtualRecords.push({
           id: `absent-${cpf}`,
           cpf: member.cpf,
           fullName: member.fullName,
@@ -794,9 +893,10 @@ Recarregue a página para ver o estado atualizado.`);
           reclassification: member.reclassification,
           city: member.city,
           shift: member.shift,
-          timestamp: new Date(targetDate + "T00:00:00"),
+          timestamp: targetTimestamp,
           photoUrl: member.photoUrl,
-        } as AttendanceRecord));
+        } as AttendanceRecord);
+      });
     }
 
     // 🚨 LÓGICA ESPECIAL: Se filtro "Ausente" está ativo, mostrar MEMBROS SEM registro no dia
@@ -807,32 +907,18 @@ Recarregue a página para ver o estado atualizado.`);
       filtered = records.filter((record) => {
         const statusAtual = attendanceStatus[record.id] || record.status || "Presente";
 
-        // ✅ Filtro de status
         if (statusFilter !== "todos" && statusAtual !== statusFilter) {
           return false;
         }
 
-        // ✅ Filtro de região
-        if (regionFilter !== "__all__") {
-          const region = record.region || "";
-          if (region.toLowerCase() !== regionFilter.toLowerCase()) {
-            return false;
-          }
+        if (regionTerm && (record.region || "").toLowerCase() !== regionTerm) {
+          return false;
         }
 
-        // ✅ Filtro de data
+        const indexed = recordIndex.get(record.id);
+
         if (dateFilter) {
-          if (!record.timestamp) {
-            return false;
-          }
-          
-          const recordDate = new Date(record.timestamp);
-          const filterDate = new Date(dateFilter + "T00:00:00");
-          
-          const recordDateStr = recordDate.toLocaleDateString("pt-BR");
-          const filterDateStr = filterDate.toLocaleDateString("pt-BR");
-          
-          if (recordDateStr !== filterDateStr) {
+          if (!record.timestamp || indexed?.dayKey !== targetDayKey) {
             return false;
           }
         }
@@ -841,57 +927,20 @@ Recarregue a página para ver o estado atualizado.`);
           return false;
         }
 
-        // ✅ Busca textual
         if (!normalizedTerm) {
           return true;
         }
 
-        const searchableFields = [
-          record.fullName || "",
-          record.cpf || "",
-          statusAtual,
-          record.region || "",
-          record.churchPosition || "",
-          record.pastorName || "",
-          record.city || "",
-          record.shift || "",
-          record.reclassification || "",
-          record.timestamp ? new Date(record.timestamp).toLocaleDateString("pt-BR") : "",
-          record.absentReason || "",
-        ];
-
-        return searchableFields.some((field) => normalizeSearchText(field).includes(normalizedTerm));
+        return (
+          (indexed?.haystack ?? "").includes(normalizedTerm) ||
+          normalizeSearchText(statusAtual).includes(normalizedTerm)
+        );
       });
 
       if (statusFilter === "todos" && absentVirtualRecords.length > 0) {
         const alreadyInFiltered = new Set(filtered.map((record) => record.cpf).filter(Boolean));
         const missingFromToday = absentVirtualRecords.filter((record) => record.cpf && !alreadyInFiltered.has(record.cpf));
         filtered = [...filtered, ...missingFromToday];
-      }
-    }
-
-    // Aplicar filtros adicionais (região e busca) para modo Ausente também
-    if (statusFilter === "Ausente" || (statusFilter === "todos" && absentVirtualRecords.length > 0)) {
-      // Filtro de região
-      if (regionFilter !== "__all__") {
-        filtered = filtered.filter(r => {
-          const region = r.region || "";
-          return region.toLowerCase() === regionFilter.toLowerCase();
-        });
-      }
-
-      // Busca textual
-      if (normalizedTerm) {
-        filtered = filtered.filter(r => {
-          const searchableFields = [
-            r.fullName || "",
-            r.cpf || "",
-            r.region || "",
-            r.churchPosition || "",
-            r.pastorName || "",
-          ];
-          return searchableFields.some((field) => normalizeSearchText(field).includes(normalizedTerm));
-        });
       }
     }
 
@@ -905,7 +954,7 @@ Recarregue a página para ver o estado atualizado.`);
       const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
       return timeB - timeA;
     });
-  }, [attendanceStatus, records, regionFilter, search, statusFilter, dateFilter, allMembers, monthFilter]);
+  }, [attendanceStatus, records, recordIndex, memberHaystacks, regionFilter, debouncedSearch, statusFilter, dateFilter, allMembers, monthFilter]);
 
   useEffect(() => {
     const maxPage = Math.max(1, Math.ceil(filteredRecords.length / itemsPerPage));
