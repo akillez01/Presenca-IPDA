@@ -222,12 +222,55 @@ export default function ReportsPage() {
   const [regionFilter, setRegionFilter] = React.useState("ALL");
   const [positionFilter, setPositionFilter] = React.useState("ALL"); // ✅ Filtro por cargo (Obreiro, Presbítero, etc.)
   const [search, setSearch] = React.useState("");
+  const [cpfSearchRecords, setCpfSearchRecords] = React.useState<AttendanceRecord[] | null>(null);
+  const [cpfSearchLoading, setCpfSearchLoading] = React.useState(false);
+  const [cpfSearchError, setCpfSearchError] = React.useState<string | null>(null);
   const [statusFilter, setStatusFilter] = React.useState("todos"); // ✅ Filtro de status
   const [dateFilter, setDateFilter] = React.useState(""); // ✅ Filtro de data pontual (mantido para retrocompatibilidade)
   const [startDateFilter, setStartDateFilter] = React.useState("");
   const [endDateFilter, setEndDateFilter] = React.useState("");
   const [monthFilter, setMonthFilter] = React.useState("");
   const [isFiltersExpanded, setIsFiltersExpanded] = React.useState(true); // ✅ Estado para expandir/minimizar
+  const normalizedSearchCpf = search.replace(/\D/g, "");
+  const isCpfSearch = normalizedSearchCpf.length === 11 && /^[\d.\s()-]+$/.test(search.trim());
+
+  React.useEffect(() => {
+    if (!isCpfSearch) {
+      setCpfSearchRecords(null);
+      setCpfSearchLoading(false);
+      setCpfSearchError(null);
+      return;
+    }
+
+    let active = true;
+    setCpfSearchRecords([]);
+    setCpfSearchLoading(true);
+    setCpfSearchError(null);
+
+    getAttendanceHistoryByCpf(normalizedSearchCpf)
+      .then((records) => {
+        if (active) {
+          setCpfSearchRecords(records.map((record) => ({
+            ...record,
+            cpf: record.cpf.replace(/\D/g, ""),
+          })));
+        }
+      })
+      .catch((searchError) => {
+        console.error("Erro ao buscar histórico de presenças por CPF:", searchError);
+        if (active) {
+          setCpfSearchRecords([]);
+          setCpfSearchError("Não foi possível buscar as presenças deste CPF.");
+        }
+      })
+      .finally(() => {
+        if (active) setCpfSearchLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isCpfSearch, normalizedSearchCpf]);
 
   const shouldForceYearToDateForScope = positionFilter !== "ALL" || regionFilter !== "ALL";
 
@@ -449,7 +492,8 @@ export default function ReportsPage() {
   // Filtragem com Status e Data + Usuários Ausentes
   const filteredRecords = React.useMemo(() => {
     if (!reportData) return [];
-    const attendanceRecords = reportData.records.map((record) => {
+    const sourceRecords = isCpfSearch ? cpfSearchRecords ?? [] : reportData.records;
+    const attendanceRecords = sourceRecords.map((record) => {
       const cpf = (record.cpf || "").toString();
       if (!cpf) return record;
 
@@ -609,6 +653,8 @@ export default function ReportsPage() {
 
     // ✅ Busca por Nome e CPF
     const term = search.trim().toLowerCase();
+    const normalizedSearchTerm = term.replace(/\D/g, "");
+    const isCpfTerm = normalizedSearchTerm.length > 0 && /^[\d.\s()-]+$/.test(term);
     if (term) {
       records = records.filter(r => {
         const searchableFields = [
@@ -620,7 +666,7 @@ export default function ReportsPage() {
         return searchableFields.some(field => {
           const fieldStr = String(field).toLowerCase().trim();
           return fieldStr && fieldStr.includes(term);
-        });
+        }) || (isCpfTerm && (r.cpf || "").replace(/\D/g, "").includes(normalizedSearchTerm));
       });
     }
     
@@ -644,7 +690,7 @@ export default function ReportsPage() {
       const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
       return timeB - timeA;
     });
-  }, [reportData, regionFilter, positionFilter, search, statusFilter, dateFilter, allMembers, monthFilter, startDateFilter, endDateFilter]);
+  }, [reportData, regionFilter, positionFilter, search, statusFilter, dateFilter, allMembers, monthFilter, startDateFilter, endDateFilter, isCpfSearch, cpfSearchRecords]);
 
   // Estatísticas filtradas
   const filteredStats = React.useMemo(() => {
@@ -1149,6 +1195,8 @@ export default function ReportsPage() {
                     placeholder="Digite o nome ou CPF..." 
                     className="w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border rounded px-2 sm:px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                  {cpfSearchLoading && <p className="mt-2 text-xs text-blue-700 dark:text-blue-300">Buscando histórico de presenças...</p>}
+                  {cpfSearchError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{cpfSearchError}</p>}
                 </div>
                 
                 <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg">
