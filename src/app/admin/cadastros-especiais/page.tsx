@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAuth } from '@/hooks/use-auth';
 import { db } from '@/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
-import { ArrowLeft, Church, Landmark, RefreshCw, Users } from 'lucide-react';
+import { ArrowLeft, Church, FileText, Landmark, RefreshCw, Users } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
@@ -267,7 +267,7 @@ export default function CadastrosEspeciaisPage() {
               <Landmark className="h-5 w-5 text-primary" /> Sede Estadual
             </CardTitle>
             <CardDescription>
-              Gerencie os cadastros de membros da Sede Estadual.
+              Gerencie os cadastros e preencha as fichas de obreiro no leitor de PDF para imprimir e assinar.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -276,11 +276,25 @@ export default function CadastrosEspeciaisPage() {
                 {stats.totalSede} membro(s) cadastrado(s)
               </Badge>
             )}
-            <Button asChild className="w-full">
-              <Link href="/admin/sede-estadual">
-                Abrir Sede Estadual
-              </Link>
-            </Button>
+            <div className="space-y-2">
+              <Button asChild className="w-full">
+                <Link href="/admin/sede-estadual">
+                  Abrir Sede Estadual
+                </Link>
+              </Button>
+              <Button asChild variant="outline" className="w-full">
+                <a href="/doc/Ficha%20de%20remanejamento%20de%20obreiro.pdf" target="_blank" rel="noreferrer">
+                  <FileText className="h-4 w-4" />
+                  Ficha de remanejamento
+                </a>
+              </Button>
+              <Button asChild variant="outline" className="w-full">
+                <a href="/doc/Ficha%20de%20cadastro%20de%20obreiro%20e%20anexos.pdf" target="_blank" rel="noreferrer">
+                  <FileText className="h-4 w-4" />
+                  Ficha de cadastro de obreiro e anexos
+                </a>
+              </Button>
+            </div>
           </CardContent>
         </Card>
 

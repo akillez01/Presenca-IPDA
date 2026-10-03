@@ -53,6 +53,7 @@ import {
   ArrowLeft,
   Camera,
   Download,
+  FileText,
   Landmark,
   Pencil,
   Plus,
@@ -558,6 +559,16 @@ export default function SedeEstadualPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline">
+            <a href="/doc/Ficha%20de%20remanejamento%20de%20obreiro.pdf" target="_blank" rel="noreferrer">
+              <FileText className="mr-2 h-4 w-4" /> Ficha de remanejamento
+            </a>
+          </Button>
+          <Button asChild variant="outline">
+            <a href="/doc/Ficha%20de%20cadastro%20de%20obreiro%20e%20anexos.pdf" target="_blank" rel="noreferrer">
+              <FileText className="mr-2 h-4 w-4" /> Ficha de cadastro de obreiro e anexos
+            </a>
+          </Button>
           <Button
             variant="outline"
             onClick={() => exportSedeEstadualToCSV(filteredRecords)}
