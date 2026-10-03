@@ -85,6 +85,18 @@ export const ROUTE_PERMISSIONS: RoutePermission[] = [
     allowedPermissions: ['sedeEstadual']
   },
   {
+    path: '/admin/cadastro-obreiro',
+    allowedUserTypes: [UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
+    allowedRoles: ['editor', 'admin', 'super'],
+    allowedPermissions: ['sedeEstadual']
+  },
+  {
+    path: '/admin/remanejamento-obreiro',
+    allowedUserTypes: [UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
+    allowedRoles: ['editor', 'admin', 'super'],
+    allowedPermissions: ['sedeEstadual']
+  },
+  {
     path: '/admin/cadastros-especiais',
     allowedUserTypes: [UserType.BASIC_USER, UserType.BAPTISM_USER, UserType.EDITOR_USER, UserType.SUPER_USER, 'ADMIN_USER'],
     allowedRoles: ['basic_user', 'baptism_user', 'user', 'editor', 'admin', 'super'],

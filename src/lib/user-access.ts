@@ -64,7 +64,7 @@ export const NAVIGATION_PERMISSION_OPTIONS: PermissionOption[] = [
   {
     permission: 'sedeEstadual',
     label: 'Sede Estadual',
-    description: 'Cadastro de membros da Sede Estadual.',
+    description: 'Cadastros da Sede Estadual, fichas de obreiro e remanejamentos.',
   },
   {
     permission: 'letters',

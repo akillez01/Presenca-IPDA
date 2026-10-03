@@ -53,14 +53,15 @@ import {
   ArrowLeft,
   Camera,
   Download,
-  FileText,
   Landmark,
   Pencil,
   Plus,
   RefreshCw,
+  Repeat,
   Search,
   Trash2,
   Upload,
+  Users,
   X,
 } from "lucide-react";
 import Image from "next/image";
@@ -559,16 +560,6 @@ export default function SedeEstadualPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button asChild variant="outline">
-            <a href="/doc/Ficha%20de%20remanejamento%20de%20obreiro.pdf" target="_blank" rel="noreferrer">
-              <FileText className="mr-2 h-4 w-4" /> Ficha de remanejamento
-            </a>
-          </Button>
-          <Button asChild variant="outline">
-            <a href="/doc/Ficha%20de%20cadastro%20de%20obreiro%20e%20anexos.pdf" target="_blank" rel="noreferrer">
-              <FileText className="mr-2 h-4 w-4" /> Ficha de cadastro de obreiro e anexos
-            </a>
-          </Button>
           <Button
             variant="outline"
             onClick={() => exportSedeEstadualToCSV(filteredRecords)}
@@ -600,6 +591,39 @@ export default function SedeEstadualPage() {
             )}
           </Button>
         </div>
+      </div>
+
+      <div className="mb-6 grid gap-4 sm:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Users className="h-5 w-5 text-primary" /> Cadastro de obreiro
+            </CardTitle>
+            <CardDescription>
+              Salve os dados ministeriais, anexe os documentos e gere a ficha preenchida para impressão e assinatura.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild className="w-full">
+              <Link href="/admin/cadastro-obreiro">Abrir cadastro de obreiro</Link>
+            </Button>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Repeat className="h-5 w-5 text-primary" /> Remanejamento de obreiro
+            </CardTitle>
+            <CardDescription>
+              Registre e acompanhe solicitações de remanejamento e gere a ficha oficial para impressão.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild className="w-full">
+              <Link href="/admin/remanejamento-obreiro">Abrir remanejamento</Link>
+            </Button>
+          </CardContent>
+        </Card>
       </div>
 
       <Card className="mb-6 border-blue-200 bg-blue-50/40">

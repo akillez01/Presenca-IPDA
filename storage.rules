@@ -83,6 +83,17 @@ service firebase.storage {
       allow delete: if isAuthorizedStaff();
     }
 
+    // Anexos dos cadastros internos de obreiro e remanejamento.
+    match /sede-estadual-form-files/{recordId}/{allPaths=**} {
+      allow read, delete: if isAuthorizedStaff();
+      allow create, update: if isAuthorizedStaff()
+        && request.resource.size < 20 * 1024 * 1024
+        && (
+          request.resource.contentType.matches('image/.*') ||
+          request.resource.contentType == 'application/pdf'
+        );
+    }
+
     // Regra padrão - bloqueia tudo que não corresponder às regras acima
     match /{allPaths=**} {
       allow read, write: if false;
